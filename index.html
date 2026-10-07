@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#090f16">
+<meta name="description" content="Pilot a polygon starship with your canine copilot. 10 sectors. 50 waves. One neon finish line.">
+<title>STARHOUND · Neon Run</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<canvas id="world" aria-label="3D space runner"></canvas>
+<div id="load-error" class="hidden" role="alert">Unable to load the flight engine. Check your internet connection and reload.</div>
+<header id="masthead"><a class="wordmark" href="./index.html" aria-label="Starhound home"><span class="star-mark">✦</span> STARHOUND<span class="wordmark-sub">FLIGHT DIVISION</span></a><div class="header-right"><span class="edition">POLYGON SERIES / 01</span><button id="audio-button" class="icon-button" aria-label="Enable sound" title="Enable sound">SOUND OFF</button></div></header>
+<main id="title-screen" class="screen">
+<div class="hero-copy"><div class="eyebrow"><span class="live-dot"></span> CAPTAIN GOODBOY IS CLEARED FOR TAKEOFF</div><h1>NEON<br><span>RUN.</span></h1><p class="tagline">One very good pilot.<br>One very fast ship.</p><p class="description">Ride the bends. Break the blockade.<br>Bring it home through 50 waves of deep space.</p><div class="hero-actions"><button id="launch" class="primary">LAUNCH RUN <span>↗</span></button><button id="flight-manual" class="text-button">FLIGHT MANUAL <span>+</span></button></div><div class="hero-stats"><div><strong>10</strong><span>SECTORS</span></div><div><strong>50</strong><span>WAVES</span></div><div><strong>07</strong><span>SYNTH TRACKS</span></div></div></div>
+<div class="ship-caption"><span class="tiny-label">YOUR RIDE</span><strong>THE GOODBOY MK. I</strong><span>Polygon interceptor / canine-certified</span></div>
+<footer class="title-footer"><span>WASD / ARROWS <b>STEER</b> &nbsp; SPACE <b>FIRE</b> &nbsp; SHIFT <b>BOOST</b></span><span>BUILT FOR THE LONG WAY HOME <i>✦</i></span></footer>
+</main>
+<section id="hud" class="hidden" aria-label="Flight instruments">
+<div class="hud-top"><div><span class="tiny-label">SECTOR <span id="sector">01</span> / 10</span><h2 id="sector-name">THE DEPARTURE</h2></div><div class="wave-info"><span class="tiny-label">WAVE <b id="wave">01</b> / 50</span><div class="wave-dots" id="wave-dots"></div></div><button id="pause-button" class="icon-button">PAUSE II</button></div>
+<div class="race-progress"><div id="race-fill"></div></div><div class="reticle">＋</div>
+<div id="announcement" role="status"></div><div id="pickup-toast" role="status"></div>
+<div class="hud-bottom"><div class="instrument health"><span class="tiny-label">HULL INTEGRITY</span><div class="meter"><div id="hull-fill"></div></div><span id="hull-text">100%</span></div><div class="speed-instrument"><strong id="speed">045</strong><span>VELOCITY</span><div class="meter"><div id="speed-fill"></div></div><small id="effect-label">CRUISE</small></div><div class="instrument weapon"><span class="tiny-label" id="cannon-name">SINGLE CANNON</span><div class="meter"><div id="heat-fill"></div></div><span id="weapon-status">HEAT 0% · CLIP 18</span><small id="upgrade-status">FIRE I · RELOAD I</small></div></div>
+<div class="hud-hints">WASD / ARROWS · STEER &nbsp; SPACE · FIRE &nbsp; SHIFT · BOOST &nbsp; R · RELOAD &nbsp; ESC · PAUSE &nbsp; M · SOUND</div>
+</section>
+<section id="overlay" class="screen hidden"><div class="panel"><div class="eyebrow" id="overlay-eyebrow">FLIGHT PAUSED</div><h2 id="overlay-title">CATCH YOUR<br>BREATH.</h2><p id="overlay-copy"></p><div id="run-stats"></div><button id="resume" class="primary">RESUME FLIGHT <span>↗</span></button><button id="restart" class="text-button">NEW RUN</button><button id="home" class="text-button">RETURN TO HANGAR</button></div></section>
+<dialog id="manual"><button id="close-manual" class="close" aria-label="Close flight manual">×</button><div class="eyebrow">CAPTAIN'S FIELD GUIDE</div><h2>GOOD DOG.<br>GREAT PILOT.</h2><p>Reach the checkered gate at wave 50. Fly inside the tunnel, shoot drones and rocks, and dodge the indestructible orange barriers.</p><div class="manual-grid"><div><h3>FLIGHT</h3><p><kbd>WASD</kbd> or <kbd>↑ ↓ ← →</kbd> Steer<br><kbd>Space</kbd> Hold to fire<br><kbd>Shift</kbd> Burn speed charge<br><kbd>R</kbd> Reload early<br><kbd>Esc / P</kbd> Pause<br><kbd>M</kbd> Toggle sound</p></div><div><h3>YOUR CANNON</h3><p>Find upgrades for 2, 4, then 6 barrels. Fire-rate and reload upgrades stack up to level IV. Ammo reloads automatically. Overheating locks the cannon until it cools, with one extra second of recovery.</p></div></div><div class="pickup-guide"><span><i class="cyan">◆</i> SPEED CHARGE</span><span><i class="pink">◆</i> CANNON / FIRE / RELOAD</span><span><i class="gold">◆</i> INVINCIBILITY / TURBO</span><span><i class="green">◆</i> HULL REPAIR</span></div><p class="fineprint">Seven original Web Audio synth arrangements. Audio starts after a click or key press. Keyboard required. Best experienced in a modern desktop browser with headphones. A full race is approximately 20 minutes; boosting changes your finish time.</p></dialog>
+<!-- Ordered classic scripts work on both file:// and static HTTP(S) hosting. -->
+<script>window.addEventListener('error',function(){document.getElementById('load-error').classList.remove('hidden');},true);</script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="./js/three-loader.js"></script>
+<script src="./js/settings.js"></script>
+<script src="./js/sound.js"></script>
+<script src="./js/scene.js"></script>
+<script src="./js/systems.js"></script>
+<script src="./js/interface.js"></script>
+<script src="./js/game.js"></script>
+<script>Starhound.Game.init();</script>
+</body></html>
