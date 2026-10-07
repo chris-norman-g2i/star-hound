@@ -1,6 +1,6 @@
 (function (namespace) {
 'use strict';
-const { music, sfx } = namespace.settings;
+const { music, sfx, voices } = namespace.settings;
 
 /** Web Audio resource ownership and sample-accurate scheduling.
  * Composition, note frequencies, envelopes and signal tuning come from settings.
@@ -9,12 +9,17 @@ class SoundEngine {
   constructor() {
     this.context = null; this.enabled = false; this.paused = false;
     this.track = null; this.step = 0; this.nextTime = 0; this.bpm = music.tracks.intro.bpm;
-    this.musicBus = null; this.lastState = null;
+    this.musicBus = null; this.lastState = null; this.positions = {};
+    this.voiceActive=false;this.voices=new namespace.VoiceEngine(active=>{
+      this.voiceActive=active;
+      if(this.context)this.applyMix();
+    });
   }
   async unlock() {
     if (!this.context) this.initialize();
     if (!this.context) return false;
     if(!this.paused) await this.context.resume(); this.enabled = true;
+    this.voices.setEnabled(true);
     this.master.gain.setTargetAtTime(music.master, this.context.currentTime, music.fade);
     return true;
   }
@@ -55,13 +60,23 @@ class SoundEngine {
   async toggle() {
     if (!this.enabled) return this.unlock();
     this.enabled = false;
+    this.voices.setEnabled(false);
     this.master.gain.setTargetAtTime(0,this.context.currentTime,music.fade);
     return false;
   }
-  update(state) {
+  applyMix() {
+    const time=this.context.currentTime;
+    this.fxBus.gain.setTargetAtTime(music.sfxGain*(this.voiceActive?voices.effectsDuck:1),time,music.fade);
+    if(this.musicBus)this.musicBus.gain.setTargetAtTime(music.musicGain*(this.voiceActive?voices.musicDuck:1),time,music.fade);
+  }
+  voice(event,state) {this.voices.event(event,state);}
+  clearVoices() {this.voices.clear();}
+  update(state,dt=.025) {
     this.lastState = state;
+    this.voices.update(state,dt);
     if(!this.context) return;
     const engine=sfx.engineState(state),time=this.context.currentTime;
+    this.applyMix();
     this.engineTone.frequency.setTargetAtTime(engine.frequency,time,sfx.engine.smoothing);
     this.engineFilter.frequency.setTargetAtTime(engine.cutoff,time,sfx.engine.smoothing);
     this.engineAmp.gain.setTargetAtTime(engine.gain,time,sfx.engine.smoothing);
@@ -71,6 +86,7 @@ class SoundEngine {
   }
   setTrack(id) {
     const ctx = this.context;
+    if(this.track)this.positions[this.track]=this.step;
     if(this.musicBus) {
       const old = this.musicBus;
       old.gain.cancelScheduledValues(ctx.currentTime);
@@ -79,8 +95,8 @@ class SoundEngine {
     }
     this.musicBus = ctx.createGain(); this.musicBus.gain.value = 0;
     this.musicBus.connect(this.compressor);
-    this.musicBus.gain.setTargetAtTime(music.musicGain,ctx.currentTime,music.fade);
-    this.track = id; this.step = 0; this.nextTime = music.offset(ctx.currentTime,music.startOffset);
+    this.musicBus.gain.setTargetAtTime(music.musicGain*(this.voiceActive?voices.musicDuck:1),ctx.currentTime,music.fade);
+    this.step = music.transitionStep(id,this.step,this.positions); this.track = id; this.nextTime = music.offset(ctx.currentTime,music.startOffset);
   }
   schedule() {
     if(!this.context || this.context.state!=='running' || this.paused || !this.track) return;
@@ -140,9 +156,9 @@ class SoundEngine {
     osc.start(time);osc.stop(music.offset(time,cfg.duration));
     osc.onended=()=>{osc.disconnect();filter.disconnect();amp.disconnect();pan.disconnect();};
   }
-  async pause() {this.paused=true;if(this.context?.state==='running')await this.context.suspend();}
-  async resume() {this.paused=false;if(this.context){await this.context.resume();this.nextTime=music.offset(this.context.currentTime,music.startOffset);}}
-  dispose() {clearInterval(this.timer);this.context?.close();}
+  async pause() {this.paused=true;this.voices.pause();if(this.context?.state==='running')await this.context.suspend();}
+  async resume() {this.paused=false;this.voices.resume();if(this.context){await this.context.resume();this.nextTime=music.offset(this.context.currentTime,music.startOffset);}}
+  dispose() {this.voices.dispose();clearInterval(this.timer);this.context?.close();}
 }
 
 namespace.SoundEngine = SoundEngine;

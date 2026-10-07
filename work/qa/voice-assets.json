@@ -1,0 +1,102 @@
+{
+  "clips": [
+    {
+      "id": "dog-bark",
+      "seconds": 1.811,
+      "peak": 0.7099,
+      "bytes": 22797
+    },
+    {
+      "id": "dog-bone",
+      "seconds": 1.086,
+      "peak": 0.6794,
+      "bytes": 14157
+    },
+    {
+      "id": "dog-yikes",
+      "seconds": 2.915,
+      "peak": 0.7107,
+      "bytes": 36045
+    },
+    {
+      "id": "dog-get-em",
+      "seconds": 1.204,
+      "peak": 0.7047,
+      "bytes": 15597
+    },
+    {
+      "id": "dog-yee-haw",
+      "seconds": 0.916,
+      "peak": 0.7109,
+      "bytes": 12141
+    },
+    {
+      "id": "dog-whoops",
+      "seconds": 0.727,
+      "peak": 0.6447,
+      "bytes": 9837
+    },
+    {
+      "id": "dog-close-one",
+      "seconds": 1.7,
+      "peak": 0.7106,
+      "bytes": 21357
+    },
+    {
+      "id": "computer-ready",
+      "seconds": 0.932,
+      "peak": 0.7104,
+      "bytes": 12141
+    },
+    {
+      "id": "computer-checkpoint",
+      "seconds": 1.092,
+      "peak": 0.7099,
+      "bytes": 14157
+    },
+    {
+      "id": "computer-resumed",
+      "seconds": 1.116,
+      "peak": 0.7117,
+      "bytes": 14445
+    },
+    {
+      "id": "computer-lost",
+      "seconds": 0.824,
+      "peak": 0.6362,
+      "bytes": 10989
+    },
+    {
+      "id": "computer-great",
+      "seconds": 0.925,
+      "peak": 0.6492,
+      "bytes": 12141
+    },
+    {
+      "id": "computer-good-boy",
+      "seconds": 0.82,
+      "peak": 0.6781,
+      "bytes": 10989
+    },
+    {
+      "id": "computer-whos-good",
+      "seconds": 1.017,
+      "peak": 0.6061,
+      "bytes": 13293
+    },
+    {
+      "id": "computer-best-doggie",
+      "seconds": 1.396,
+      "peak": 0.7072,
+      "bytes": 17901
+    },
+    {
+      "id": "computer-treat",
+      "seconds": 1.029,
+      "peak": 0.7098,
+      "bytes": 13293
+    }
+  ],
+  "totalBytes": 251280,
+  "maxPeak": 0.7117
+}
