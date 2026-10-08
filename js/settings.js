@@ -1,3 +1,4 @@
+// STARHOUND complete classic settings. Paste over js/settings.js.
 (function configure(global, overrides) {
 'use strict';
 overrides = overrides || {};
@@ -870,4 +871,33 @@ const tuning = {
 tuning.apply(overrides);if(typeof overrides.seed==='string')tuning.seed=overrides.seed.slice(0,80);
 tuning.defaults=Object.freeze(tuning.values());tuning.defaultSeed=tuning.seed;tuning.load();
 namespace.settings = Object.freeze({math,random,tunnel,race,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,music,sfx,voices,renderMath,speedEffects,scenery,route,speedRings,propulsion,crash,tuning});
-})(window);
+})(window, {
+  "race.waveLength": 2200,
+  "race.startSpeed": 75,
+  "race.speedPerWave": 1,
+  "race.endlessAcceleration": 1,
+  "race.recoveryLength": 210,
+  "race.chargeDrain": 1.2,
+  "race.boostDrain": 15,
+  "encounters.easyInterval": 150,
+  "encounters.hardInterval": 55,
+  "weapon.baseInterval": 0.05,
+  "weapon.heatPerVolley": 5,
+  "weapon.coolingPerSecond": 22,
+  "weapon.extraCooldown": 1,
+  "pickups.interval": 500,
+  "gfx.fogDensity": 0.0022,
+  "route.openShare": 0.6,
+  "route.tunnelWeight": 1,
+  "route.stationWeight": 1,
+  "route.cruiserWeight": 1,
+  "route.tunnelLength": 720,
+  "route.stationLength": 420,
+  "route.cruiserLength": 1100,
+  "speedRings.seriesDistance": 1200,
+  "speedRings.spacing": 60,
+  "speedRings.bonusPerRing": 0.1,
+  "speedRings.bonusCap": 0.6,
+  "speedRings.decayPerSecond": 0.025,
+  "seed": "GOODBOY"
+});
