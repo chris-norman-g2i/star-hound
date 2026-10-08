@@ -17,51 +17,59 @@ function init(){
   // Start/update coordinate resources. Rules, arithmetic and authored behavior stay in settings.
   async function start(){
     systems.reset();state=race.state(tuning.seed);state.mode='playing';checkpoints.begin(state);
-    keys.clear();document.activeElement?.blur();await sound.resume();await sound.unlock();view.audio(sound.enabled);sound.play('launch');
+    keys.clear();document.activeElement?.blur();await sound.resume();await sound.unlock();view.audio(sound);sound.beginFlight(state);sound.play('launch');
     sound.voice?.('launch',state);
   }
   async function continueCheckpoint(){
     const restored=checkpoints.resume();if(!restored)return;
     systems.reset();state=restored;keys.clear();document.activeElement?.blur();scene.applyTuning();
-    await sound.resume();await sound.unlock();view.audio(sound.enabled);sound.play('launch');
+    await sound.resume();await sound.unlock();view.audio(sound);sound.beginFlight(state);sound.play('launch');
     sound.voice?.('continue',state);
   }
   function update(){
     requestAnimationFrame(update);const dt=math.delta(clock.getDelta());titleTime=gfx.titleTime(titleTime,dt);
-    if(state.mode==='playing'){
-      systems.step(state,dt,keys);const respawning=state.respawnPending,defeated=state.mode==='defeat';
+    if(state.mode==='playing'||state.mode==='crashing'){
+      systems.step(state,dt,keys);const before=state;
       state=checkpoints.afterStep(state,systems);
-      if(respawning)sound.voice?.('respawn',state);else if(defeated)sound.voice?.('defeat',state);
+      if(state!==before)sound.voice('respawn',state);
+      else if(state.mode==='defeat'&&view.lastMode!=='defeat')sound.voice('defeat',state);
     }
     sound.update(state,dt);view.update(state,titleTime);view.checkpoint(checkpoints);
     scene.render(state,state.mode==='paused'?0:dt,titleTime,systems.entities,systems.bullets);
   }
   async function pause(){
-    if(state.mode==='playing'){state.mode='paused';keys.clear();await sound.pause();}
-    else if(state.mode==='paused'){state.mode='playing';keys.clear();document.activeElement?.blur();await sound.resume();}
+    if(state.mode==='playing'||state.mode==='crashing'){state.resumeMode=state.mode;state.mode='paused';keys.clear();await sound.pause();}
+    else if(state.mode==='paused'){state.mode=state.resumeMode||'playing';keys.clear();document.activeElement?.blur();await sound.resume();}
   }
   async function home(){sound.clearVoices?.();systems.reset();state=race.state(tuning.seed);keys.clear();await sound.resume();}
-  async function toggleAudio(){await sound.toggle();view.audio(sound.enabled);}
+  async function toggleAudio(){await sound.toggle();view.audio(sound);}
+  function nextTrack(){if(state.mode==='playing'){sound.nextTrack(state);}}
   function jump(wave){
-    if(state.mode==='title'||state.mode==='defeat'){controls.status.textContent='Launch or resume a run before jumping to a wave.';return;}
+    if(!['playing','paused'].includes(state.mode)||state.resumeMode==='crashing'&&state.mode==='paused'){controls.status.textContent='Launch or resume a run before jumping to a wave.';return;}
     const mode=state.mode;checkpoints.jump(state,wave,systems);state.mode=mode;keys.clear();
     controls.status.textContent=`Checkpoint moved to wave ${state.wave}.`;
   }
   const controls=new FlightControls({
     state:()=>state,jump,
-    opened:()=>{keys.clear();if(state.mode==='playing')pause();},
+    opened:()=>{keys.clear();if(state.mode==='playing'||state.mode==='crashing')pause();},
     closed:()=>{keys.clear();},
     applied:()=>{scene.applyTuning();if(state.mode==='playing'||state.mode==='paused')jump(state.wave);},
   });
-  const requestNew=()=>view.confirmNew(checkpoints,start);
+  const requestNew=()=>{if(checkpoints.current)view.confirmNew(checkpoints);else start();};
   view.nodes.launch.addEventListener('click',requestNew);view.nodes.restart.addEventListener('click',requestNew);
   view.nodes['checkpoint-resume'].addEventListener('click',continueCheckpoint);
-  view.nodes['confirm-new'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();view.pendingLaunch?.();view.pendingLaunch=null;});
-  view.nodes['cancel-new'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();view.pendingLaunch=null;});
+  view.nodes['confirm-new'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();start();});
+  view.nodes['resume-checkpoint-dialog'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();continueCheckpoint();});
   view.nodes.resume.addEventListener('click',pause);view.nodes.home.addEventListener('click',home);
+  for(const channel of ['music','effects','voice']){
+    const input=document.getElementById(channel+'-volume');input.value=sound.volumes[channel];
+    input.addEventListener('input',()=>{sound.setVolume(channel,Number(input.value));view.audio(sound);});
+  }
+  view.audio(sound);
   view.nodes['audio-button'].addEventListener('click',toggleAudio);view.nodes['pause-button'].addEventListener('click',pause);
   view.nodes['flight-manual'].addEventListener('click',()=>view.showManual());view.nodes['close-manual'].addEventListener('click',()=>view.hideManual());
   window.addEventListener('keydown',event=>{
+    if(event.code==='F2'&&view.nodes['tuning-dialog'].open){controls.handleKey(event);return;}
     if(view.isDialogOpen())return;
     if(['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName))return;
     if(controls.handleKey(event))return;
@@ -70,12 +78,12 @@ function init(){
     if(ui.keys.includes(event.code)&&state.mode==='playing'){event.preventDefault();keys.add(event.code);}
     if(event.repeat)return;
     if(event.code==='Escape'||event.code==='KeyP')pause();
-    if(event.code==='KeyM')toggleAudio();
+    if(event.code==='KeyM')nextTrack();
     if(event.code==='Enter'&&state.mode==='title')requestNew();
   });
   window.addEventListener('keyup',event=>keys.delete(event.code));window.addEventListener('resize',()=>scene.resize());
-  window.addEventListener('blur',()=>{keys.clear();if(state.mode==='playing')pause();});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.mode==='playing')pause();});
+  window.addEventListener('blur',()=>{keys.clear();if(state.mode==='playing'||state.mode==='crashing')pause();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&(state.mode==='playing'||state.mode==='crashing'))pause();});
   window.addEventListener('pagehide',()=>sound.dispose());
   update();
 }

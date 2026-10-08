@@ -1,0 +1,71 @@
+(function (namespace) {
+'use strict';
+const { race, flight, weapon, encounters, pickups, math, tunnel, voices } = namespace.settings;
+
+/** Runtime lists and event dispatch. All numerical rules are configured in settings. */
+class FlightSystems {
+  constructor(scene,sound) {this.scene=scene;this.sound=sound;this.entities=[];this.bullets=[];}
+  reset() {this.entities.length=0;this.bullets.length=0;this.scene.clear();}
+  step(s,dt,keys) {
+    const wave=s.wave;
+    race.advance(s,dt,keys);flight.step(s.player,keys,dt);weapon.tick(s.weapon,dt);
+    if(s.wave!==wave){race.announce(s);s.checkpointPending=true;this.sound.play('wave');this.sound.voice?.('checkpoint',s);}
+    this.spawn(s);this.shoot(s,keys);this.move(s,dt);this.collide(s);this.cleanup(s);
+    if(s.hull<=0){this.scene.burst({x:s.player.x,y:s.player.y,d:s.distance});this.sound.play('explosion');s.respawnPending=race.loseLife(s);}
+
+  }
+  spawn(s) {
+    while(encounters.canSpawn(s,this.entities.length))
+      this.entities.push(...encounters.make(s));
+    while(pickups.canSpawn(s))
+      this.entities.push(pickups.scheduled(s));
+  }
+  shoot(s,keys) {
+    if(keys.has('Space')&&weapon.canFire(s.weapon)){
+      this.bullets.push(...weapon.bullets(s));weapon.fire(s.weapon);this.sound.play('shot',s.player.x);
+      if(s.weapon.overheated){this.sound.play('overheat');s.toast='CANNON OVERHEATED';s.toastTime=weapon.toastTime;}
+    }
+  }
+  move(s,dt) {
+    const shots=[];
+    for(const e of this.entities){if(e.type==='hostile'&&race.recovery(s.distance))e.dead=true;encounters.animate(e,dt);if(!e.dead&&encounters.shouldShoot(e,s))shots.push(encounters.hostile(e,s));}
+    this.entities.push(...shots);for(const bullet of this.bullets)weapon.moveBullet(bullet,dt);
+  }
+  collide(s) {
+    const dropped=[];
+    for(const bullet of this.bullets){
+      if(bullet.dead)continue;
+      for(const e of this.entities){
+        if(e.dead||e.type==='pickup'||e.type==='hostile')continue;
+        if(weapon.bulletHit(bullet,e)){
+          bullet.dead=true;
+          if(e.type!=='barrier'&&weapon.impact(e)){e.dead=true;encounters.score(s,e);this.scene.burst(e);this.sound.play('explosion',e.x);if(e.type==='enemy'){dropped.push(pickups.drop(e,s));this.sound.voice?.('enemyKill',s);}}
+          break;
+        }
+      }
+    }
+    this.entities.push(...dropped);
+    for(const e of this.entities){
+      if(e.dead||!encounters.playerHit(e,s))continue;
+      e.dead=true;
+      if(e.type==='pickup'){
+        pickups.collect(e,s);this.sound.play(e.pickup,e.x);
+        this.sound.voice?.(['turbo','invincible'].includes(e.pickup)?'powerup':e.pickup==='charge'?'treat':'pickup',s);
+      }
+      else {if(flight.damage(s,encounters.damage[e.type])){this.sound.play('hit',s.player.x);this.scene.burst(e);if(s.hull>0)this.sound.voice?.('hit',s);}else if(s.invincible>0){this.scene.burst(e);this.sound.play('explosion',e.x);}}
+    }
+  }
+  cleanup(s) {
+    if(s.hull>0&&s.invincible<=0&&s.protection<=0&&s.hurt<=0)for(const e of this.entities){
+      if(e.dead||e.voicePassed||!['rock','enemy','barrier'].includes(e.type)||e.d+e.rz>=s.previousDistance)continue;
+      e.voicePassed=true;
+      const dx=Math.max(0,Math.abs(e.x-s.player.x)-e.rx-flight.shipRadius),dy=Math.max(0,Math.abs(e.y-s.player.y)-e.ry-flight.shipRadius);
+      const gap=Math.hypot(dx,dy);if(gap>0&&gap<voices.nearMissMargin)this.sound.voice?.('nearMiss',s);
+    }
+    this.entities=this.entities.filter(e=>encounters.alive(e,s));
+    this.bullets=this.bullets.filter(b=>weapon.alive(b,s));
+  }
+}
+
+namespace.FlightSystems = FlightSystems;
+})(window.Starhound);

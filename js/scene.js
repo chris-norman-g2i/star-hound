@@ -14,11 +14,15 @@ class FlightScene {
     this.scene.add(new THREE.HemisphereLight(...renderMath.hemisphere,gfx.lighting.ambient));
     const key=new THREE.DirectionalLight(renderMath.keyColor,gfx.lighting.key);key.position.fromArray(gfx.lighting.keyPosition);this.scene.add(key);
     const rim=new THREE.DirectionalLight(renderMath.rimColor,gfx.lighting.rim);rim.position.fromArray(gfx.lighting.rimPosition);this.scene.add(rim);
-    this.geometries=new Map();this.materials=new Map();this.entities=new Map();this.particles=[];
+    this.geometries=new Map();this.materials=new Map();this.entities=new Map();this.shipMaterials=new Map();this.crashPresentation=null;
     this.ship=this.makeShip();this.scene.add(this.ship);
-    this.makeTunnel();this.makeStars();this.makeParticles();
+    this.makeTunnel();this.makeStars();this.scene.add(this.camera);
+    this.particles=new namespace.FlightParticles(this.scene);
+    this.environment=new namespace.FlightEnvironment(this.scene);
+    this.speedEffects=new namespace.FlightSpeedEffects(this.renderer,this.camera);
+    this.isolateShipMaterials(this.ship);
     this.reticle=document.getElementById('reticle');this.aimMarkers=[];this.aimPoint=new THREE.Vector3();
-    this.tier=-1;this.sector=-1;this.trailTimer=0;this.frame=new THREE.Object3D();this.color=new THREE.Color();
+    this.tier=-1;this.sector=-1;this.frame=new THREE.Object3D();this.color=new THREE.Color();
     this.resize();
   }
   geometry(kind) {
@@ -30,6 +34,12 @@ class FlightScene {
     if(kind==='tetra')g=new THREE.TetrahedronGeometry(...spec.slice(1));
     if(kind==='cone')g=new THREE.ConeGeometry(...spec.slice(1));
     if(kind==='cylinder')g=new THREE.CylinderGeometry(...spec.slice(1));
+    if(kind==='sphere')g=new THREE.SphereGeometry(...spec.slice(1));
+    if(kind==='torus')g=new THREE.TorusGeometry(...spec.slice(1));
+    if(kind==='wedge'){
+      g=new THREE.BufferGeometry();const a=[-.5,-.5,-.5],b=[.5,-.5,-.5],c=[-.5,.5,-.5],d=[-.5,-.5,.5],e=[.5,-.5,.5],f=[-.5,.5,.5];
+      g.setAttribute('position',new THREE.Float32BufferAttribute([a,c,b,d,e,f,a,b,d,b,e,d,a,d,c,c,d,f,b,c,e,c,f,e].flat(),3));g.computeVertexNormals();
+    }
     this.geometries.set(kind,g);return g;
   }
   material(name) {
@@ -56,9 +66,11 @@ class FlightScene {
     return group;
   }
   setCannons(tier) {
-    if(tier===this.tier)return;this.tier=tier;this.cannons.clear();this.reticle.replaceChildren();this.aimMarkers=[];
+    if(tier===this.tier)return;this.tier=tier;
+    for(const barrel of this.cannons.children){this.shipMaterials.delete(barrel.material);barrel.material.dispose();}
+    this.cannons.clear();this.reticle.replaceChildren();this.aimMarkers=[];
     for(const x of weapon.barrels[tier]){const marker=document.createElement('span');marker.textContent='+';this.reticle.append(marker);this.aimMarkers.push(marker);}
-    for(const x of weapon.barrels[tier]) {const barrel=new THREE.Mesh(this.geometry('box'),this.material('dark'));barrel.position.fromArray(renderMath.barrelPosition(x));barrel.scale.fromArray(assets.cannons.scale);this.cannons.add(barrel);}
+    for(const x of weapon.barrels[tier]) {const barrel=new THREE.Mesh(this.geometry('box'),this.material('dark'));barrel.position.fromArray(renderMath.barrelPosition(x));barrel.scale.fromArray(assets.cannons.scale);this.cannons.add(barrel);this.isolateShipMaterials(barrel);}
   }
   makeTunnel() {
     const walls=new THREE.BufferGeometry();this.wallArray=new Float32Array(tunnel.vertexCount());walls.setAttribute('position',new THREE.BufferAttribute(this.wallArray,3).setUsage(THREE.DynamicDrawUsage));
@@ -75,10 +87,22 @@ class FlightScene {
     for(let i=0;i<gfx.starCount;i++){object.position.fromBufferAttribute(starPositions,i);object.scale.setScalar(renderMath.starSize);object.updateMatrix();this.stars.setMatrixAt(i,object.matrix);}
     this.scene.add(this.stars);geometry.dispose();
   }
-  makeParticles() {
-    const material=new THREE.MeshBasicMaterial({color:assets.colors.cream,transparent:true,opacity:renderMath.particleOpacity,depthWrite:false});
-    this.particleMesh=new THREE.InstancedMesh(this.geometry('tetra'),material,gfx.particle.capacity);
-    this.particleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);this.particleMesh.frustumCulled=false;this.particleMesh.count=0;this.scene.add(this.particleMesh);
+  isolateShipMaterials(root){
+    const clones=new Map();
+    root.traverse(mesh=>{
+      if(!mesh.isMesh||mesh===this.shield)return;
+      const original=mesh.material;
+      if(!clones.has(original))clones.set(original,original.clone());
+      mesh.material=clones.get(original);
+      this.shipMaterials.set(mesh.material,{color:original.color.clone(),emissive:original.emissive?.clone()});
+    });
+  }
+  rainbow(s){
+    const active=s.invincible>0,hue=s.elapsed%1;
+    for(const [material,original] of this.shipMaterials){
+      if(active){material.color.setHSL(hue,.9,.58);if(material.emissive)material.emissive.setHSL(hue,.85,.18);}
+      else{material.color.copy(original.color);if(original.emissive)material.emissive.copy(original.emissive);}
+    }
   }
   applyTuning() {
     this.scene.fog.density=gfx.fogDensity;this.walls.material.opacity=renderMath.wallOpacity;this.lines.material.opacity=renderMath.lineOpacity;
@@ -99,11 +123,13 @@ class FlightScene {
     if(e.type==='rock'){mesh=new THREE.Mesh(this.geometry('ico'),this.material('fur'));mesh.scale.fromArray(renderMath.rockSize(e));}
     if(e.type==='barrier'){mesh=new THREE.Group();const body=new THREE.Mesh(this.geometry('box'),this.material('orange'));body.scale.fromArray(renderMath.barrierSize(e));mesh.add(body);const edges=new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry),new THREE.LineBasicMaterial({color:renderMath.barrierEdgeColor}));edges.scale.copy(body.scale);mesh.add(edges);}
     if(e.type==='pickup'){
-      const color=pickups.colors[e.pickup];mesh=new THREE.Group();
-      for(const [kind,position,scale,wireframe] of assets.pickupParts[e.pickup]){
-        const part=new THREE.Mesh(this.geometry(kind),new THREE.MeshBasicMaterial({color,wireframe,transparent:wireframe,opacity:wireframe?renderMath.pickupHaloOpacity:1}));
-        part.position.fromArray(position);part.scale.fromArray(scale);mesh.add(part);
+      mesh=new THREE.Group();
+      for(const [kind,color,position,scale,rotation=[0,0,0]] of assets.pickupParts[e.pickup]){
+        const part=new THREE.Mesh(this.geometry(kind),new THREE.MeshStandardMaterial({color,roughness:.65,metalness:.05}));
+        part.position.fromArray(position);part.scale.fromArray(scale);part.rotation.fromArray(rotation);mesh.add(part);
       }
+      const halo=new THREE.Mesh(this.geometry('torus'),new THREE.MeshBasicMaterial({color:pickups.colors[e.pickup],transparent:true,opacity:.55}));
+      halo.scale.set(1.8,1.8,.3);mesh.add(halo);
     }
     if(e.type==='bullet'||e.type==='hostile'){mesh=new THREE.Mesh(this.geometry('box'),new THREE.MeshBasicMaterial({color:e.type==='bullet'?renderMath.bulletColor:renderMath.hostileColor}));mesh.scale.fromArray(e.type==='bullet'?renderMath.bulletScale:renderMath.hostileScale);}
     this.scene.add(mesh);this.entities.set(e,mesh);return mesh;
@@ -117,35 +143,72 @@ class FlightScene {
     for(const e of this.entities.keys())if(!live.has(e))this.removeEntity(e);
     for(const e of live){const mesh=this.entities.get(e)||this.makeEntity(e);mesh.position.fromArray(tunnel.world(e.x,e.y,e.d,s.distance));if(e.type!=='bullet'&&e.type!=='hostile')mesh.rotation.fromArray(assets.rotations(e));}
   }
-  burst(e) {this.particles.push(...gfx.explode(e));}
-  clear() {for(const e of this.entities.keys())this.removeEntity(e);this.particles.length=0;this.trailTimer=0;}
+  burst(e){this.particles.add(gfx.explode(e));}
+  celebrate(s){this.particles.add(gfx.fireworks(s));}
+  clearCrash(){
+    if(!this.crashPresentation)return;
+    this.scene.remove(this.crashPresentation.group);
+    for(const resource of this.crashPresentation.resources)resource.dispose();
+    this.crashPresentation=null;
+  }
+  clear(){
+    for(const e of this.entities.keys())this.removeEntity(e);
+    this.particles.clear();this.environment.clear();this.speedEffects.clear();this.clearCrash();
+  }
+  startCrash(s){
+    this.clearCrash();this.rainbow({...s,invincible:0});
+    const pose=flight.shipPose(s);this.ship.position.fromArray(pose.position);this.ship.rotation.fromArray(pose.rotation);
+    this.ship.scale.setScalar(renderMath.flightScale);this.ship.updateMatrixWorld(true);
+    const group=new THREE.Group(),pieces=[],resources=[];
+    const meshes=[...this.ship.children.filter(mesh=>mesh.isMesh&&mesh!==this.shield&&!this.engines.includes(mesh)),...this.cannons.children];
+    for(const source of meshes){
+      const piece=source.clone();source.matrixWorld.decompose(piece.position,piece.quaternion,piece.scale);
+      group.add(piece);pieces.push({mesh:piece,origin:piece.position.clone(),rotation:piece.rotation.clone(),
+        velocity:new THREE.Vector3(math.visualRandom(-8,8),math.visualRandom(-5,6),math.visualRandom(-5,7)),
+        spin:new THREE.Vector3(math.visualRandom(-3,3),math.visualRandom(-3,3),math.visualRandom(-3,3))});
+    }
+    const dog=this.dog.clone(true);dog.position.copy(this.ship.position);dog.scale.setScalar(renderMath.flightScale);group.add(dog);
+    const canopyGeometry=new THREE.SphereGeometry(1.65,16,8,0,Math.PI*2,0,Math.PI/2);
+    const canopyMaterial=new THREE.MeshStandardMaterial({color:0xffc276,side:THREE.DoubleSide,roughness:.7});
+    const canopy=new THREE.Mesh(canopyGeometry,canopyMaterial);canopy.position.set(0,4.3,.2);dog.add(canopy);
+    resources.push(canopyGeometry,canopyMaterial);
+    const cordsGeometry=new THREE.BufferGeometry();const cords=[];
+    for(const x of [-1.2,1.2])for(const z of [-.7,.7])cords.push(x,4.3,z,0,1.1,.3);
+    cordsGeometry.setAttribute('position',new THREE.Float32BufferAttribute(cords,3));
+    const cordsMaterial=new THREE.LineBasicMaterial({color:0xffeed4});dog.add(new THREE.LineSegments(cordsGeometry,cordsMaterial));resources.push(cordsGeometry,cordsMaterial);
+    this.scene.add(group);this.crashPresentation={group,pieces,dog,canopy,origin:this.ship.position.clone(),resources};
+    this.particles.add(gfx.explode({x:s.player.x,y:s.player.y,d:s.distance},150));
+  }
+  updateCrash(s){
+    const crash=this.crashPresentation;if(!crash)return;
+    const t=s.crashTime;
+    for(const p of crash.pieces){
+      p.mesh.position.copy(p.origin).addScaledVector(p.velocity,t);p.mesh.position.y-=t*t*.75;
+      p.mesh.rotation.set(p.rotation.x+p.spin.x*t,p.rotation.y+p.spin.y*t,p.rotation.z+p.spin.z*t);
+    }
+    crash.dog.position.copy(crash.origin).add(new THREE.Vector3(-Math.sin(t)*1.5,Math.min(t*2.8,3),Math.min(t*1.5,2.5)));
+    crash.dog.rotation.set(0,Math.sin(t*2)*.2,Math.sin(t*3)*.08);
+    crash.canopy.scale.setScalar(math.clamp(t/.4,.01,1));
+  }
   updateTunnel(distance,sector) {
     tunnel.fillWalls(this.wallArray,distance);tunnel.fillLines(this.lineArray,distance);
     this.walls.geometry.attributes.position.needsUpdate=true;this.lines.geometry.attributes.position.needsUpdate=true;
     if(this.sector!==sector){this.sector=sector;this.lines.material.color.set(race.sectorColor(sector));}
   }
-  updateParticles(dt,s,emit) {
-    this.trailTimer=math.add(this.trailTimer,dt);
-    if(emit&&this.trailTimer>=renderMath.trailInterval){this.trailTimer=0;this.particles.push(...gfx.trail(s));if(s.boosting||s.turbo>0)this.particles.push(gfx.stream(s),gfx.stream(s),gfx.stream(s));}
-    this.particles=this.particles.filter(p=>{gfx.stepParticle(p,dt);return p.age<p.life;}).slice(-gfx.particle.capacity);
-    let index=0;
-    for(const p of this.particles){const pose=renderMath.particleTransform(p,s.distance);this.frame.position.fromArray(pose.position);this.frame.scale.fromArray(pose.scale);this.frame.rotation.fromArray(pose.rotation);this.frame.updateMatrix();this.particleMesh.setMatrixAt(index,this.frame.matrix);this.color.set(p.color).multiplyScalar(pose.fade);this.particleMesh.setColorAt(index,this.color);index++;}
-    this.particleMesh.count=index;this.particleMesh.instanceMatrix.needsUpdate=true;if(this.particleMesh.instanceColor)this.particleMesh.instanceColor.needsUpdate=true;
-  }
   render(s,dt,titleTime,entities,bullets) {
-    if(s.mode==='title')return;
+    if(s.mode==='title'){this.speedEffects.clear();return;}
     this.setCannons(s.weapon.tier);
     const pose=flight.shipPose(s),camera=gfx.flightCamera(s);
-    this.ship.position.fromArray(pose.position);this.ship.rotation.fromArray(pose.rotation);this.ship.scale.setScalar(renderMath.flightScale);this.ship.visible=s.mode!=='defeat'&&!pose.blink;
+    this.ship.position.fromArray(pose.position);this.ship.rotation.fromArray(pose.rotation);this.ship.scale.setScalar(renderMath.flightScale);this.ship.visible=!['defeat','crashing'].includes(s.mode)&&s.resumeMode!=='crashing'&&!pose.blink;
     this.camera.position.fromArray(camera.position);this.camera.lookAt(...camera.look);
-    this.shield.visible=s.invincible>0||s.protection>0;this.shield.scale.setScalar(renderMath.flightShieldScale(s.elapsed));
-    this.updateTunnel(s.distance,s.sector);this.synchronize(entities,bullets,s);this.updateParticles(dt,s,s.mode==='playing');
+    this.rainbow(s);this.shield.visible=s.protection>0;this.shield.scale.setScalar(renderMath.flightShieldScale(s.elapsed));
+    this.updateTunnel(s.distance,s.sector);this.synchronize(entities,bullets,s);this.particles.update(s,dt);this.environment.update(s);this.speedEffects.update(s,dt);this.updateCrash(s);
     this.updateReticle(s);
     this.dog.rotation.y=assets.dogAnimation(titleTime);
     for(const engine of this.engines)engine.scale.fromArray(assets.engineScale(titleTime,s.boosting||s.turbo>0));
-    this.renderer.render(this.scene,this.camera);
+    this.speedEffects.render(this.scene,this.camera,s,dt);
   }
-  resize() {this.renderer.setSize(window.innerWidth,window.innerHeight);this.camera.aspect=math.aspect(window.innerWidth,window.innerHeight);this.camera.updateProjectionMatrix();}
+  resize() {this.renderer.setSize(window.innerWidth,window.innerHeight);this.camera.aspect=math.aspect(window.innerWidth,window.innerHeight);this.camera.updateProjectionMatrix();this.particles.resize(window.innerHeight,this.renderer.getPixelRatio());this.speedEffects.resize(window.innerWidth,window.innerHeight);}
 }
 
 namespace.FlightScene = FlightScene;

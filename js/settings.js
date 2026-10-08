@@ -36,8 +36,8 @@ const tunnel = ({
   profile: [[-12,-6],[-10,-8],[10,-8],[12,-6],[12,6],[10,8],[-10,8],[-12,6]],
   segments: 36, spacing: 16, depth: 540, startZ: 18,
   wallColor: 0x142633, railColor: 0x74cfcc,
-  center(d) { return {x: Math.sin(d / 880) * 16 + Math.sin(d / 2410) * 22,
-    y: Math.sin(d / 1110 + .7) * 11 + Math.sin(d / 3230) * 16}; },
+  center(d) { return {x: Math.sin(d / 360) * 27 + Math.sin(d / 1100) * 32,
+    y: Math.sin(d / 480 + .7) * 17 + Math.sin(d / 1500) * 21}; },
   world(x, y, d, origin) { const a = this.center(d), b = this.center(origin);
     return [x + a.x - b.x, y + a.y - b.y, origin - d]; },
   ring(i, d) { const offset = i * this.spacing - this.startZ - d % this.spacing;
@@ -88,32 +88,91 @@ const race = ({
   pickupStart(wave) { return this.checkpointDistance(wave)+55; },
   advance(s,dt,keys) {
     s.elapsed+=dt;s.previousDistance=s.distance;
-    s.boosting=(keys.has('ShiftLeft')||keys.has('ShiftRight'))&&s.charge>1;
-    s.charge=math.clamp(s.charge-dt*(s.boosting?this.boostDrain:this.chargeDrain),0,100);
-    for(const key of ['invincible','protection','turbo','hurt','noticeTime','toastTime'])s[key]=math.decrement(s[key],dt);
-    const target=this.baseSpeed(s.wave)*(1+s.charge*.0018)*(s.turbo>0?this.turboMultiplier:1)*(s.boosting?this.boostMultiplier:1);
-    s.speed=math.damp(s.speed,target,2,dt);s.distance+=s.speed*dt;
+    for(const key of ['invincible','protection','turbo','hurt','noticeTime','toastTime','checkpointCelebration'])s[key]=math.decrement(s[key],dt);
+    propulsion.advance(s,dt,keys);
+    s.distance+=s.speed*dt;
     s.wave=this.waveAt(s.distance);s.sector=this.sectorAt(s.wave);s.bestWave=Math.max(s.bestWave,s.wave);
   },
   state(seed='GOODBOY') { return {mode:'title',seed,distance:0,previousDistance:0,elapsed:0,wave:1,bestWave:1,sector:0,
     speed:this.startSpeed,charge:45,hull:100,lives:this.startLives,invincible:0,protection:0,turbo:0,hurt:0,boosting:false,
     score:0,kills:0,pickups:0,nextSpawn:this.encounterStart(1),nextPickup:this.pickupStart(1),spawnIndex:0,
-    checkpointWave:1,notice:'WAVE 01 · CLEARED FOR TAKEOFF',noticeTime:3,toast:'',toastTime:0,
+    motion:propulsion.state(),crashTime:0,checkpointCelebration:0,checkpointWave:1,notice:'WAVE 01 · CLEARED FOR TAKEOFF',noticeTime:3,toast:'',toastTime:0,
     player:{x:0,y:0,vx:0,vy:0},weapon:weapon.state()}; },
   announce(s) { s.notice=`WAVE ${math.pad(s.wave)} · CHECKPOINT · BONUS STRETCH`;s.noticeTime=2.4; },
-  loseLife(s) { s.lives--;if(s.lives<=0){s.mode='defeat';return false;}return true; },
   jump(s,wave) {
     wave=Math.max(1,Math.floor(wave));s.wave=wave;s.sector=this.sectorAt(wave);s.bestWave=Math.max(s.bestWave,wave);
     s.distance=this.checkpointDistance(wave);s.previousDistance=s.distance;s.speed=this.baseSpeed(wave);
     s.nextSpawn=this.encounterStart(wave);s.nextPickup=this.pickupStart(wave);s.spawnIndex=(wave-1)*64;
     s.hull=100;s.protection=this.respawnProtection;s.invincible=0;s.turbo=0;s.hurt=0;s.boosting=false;
+    s.motion=propulsion.state();s.crashTime=0;s.checkpointCelebration=0;
     s.player={x:0,y:0,vx:0,vy:0};weapon.resetHeat(s.weapon);s.mode='playing';this.announce(s);
   },
 });
 
+/** Speed bonuses are explicit contributions above wave cruise. A collision can reduce
+ * every active source together without changing weapon upgrades or damage immunity.
+ * Boost/turbo activation compounds with existing bonuses, preserving their stacking.
+ */
+const propulsion = {
+  recoverySeconds:1.2,enemyBonusRetention:.67,enemySpeedRetention:.55,
+  state() {return {boostBonus:0,turboBonus:0,boostBlocked:false,recovery:null};},
+  bonus(s) {return s.charge*.0018+s.motion.turboBonus+s.motion.boostBonus;},
+  target(s) {return race.baseSpeed(s.wave)*(1+this.bonus(s));},
+  turbo(s) {
+    s.turbo=pickups.duration.turbo;
+    s.motion.turboBonus=(race.turboMultiplier-1)*(1+s.charge*.0018+s.motion.boostBonus);
+  },
+  impact(s,type) {
+    const obstacle=type==='rock'||type==='barrier';
+    if(!obstacle&&type!=='enemy')return;
+    if(obstacle){
+      s.charge=0;s.turbo=0;s.motion.turboBonus=0;s.motion.boostBonus=0;
+      s.motion.boostBlocked=true;s.boosting=false;s.speed=0;
+    }else{
+      s.charge*=this.enemyBonusRetention;
+      s.motion.turboBonus*=this.enemyBonusRetention;s.motion.boostBonus*=this.enemyBonusRetention;
+      s.speed*=this.enemySpeedRetention;
+    }
+    s.motion.recovery={elapsed:0,from:s.speed,cruiseOnly:obstacle};
+  },
+  advance(s,dt,keys) {
+    const m=s.motion,held=keys.has('ShiftLeft')||keys.has('ShiftRight');
+    if(!held)m.boostBlocked=false;
+    if(s.turbo<=0)m.turboBonus=0;
+    const boosting=held&&!m.boostBlocked&&s.charge>1;
+    if(boosting&&!s.boosting)m.boostBonus=(race.boostMultiplier-1)*(1+s.charge*.0018+m.turboBonus);
+    if(!boosting)m.boostBonus=0;
+    s.boosting=boosting;
+    s.charge=math.clamp(s.charge-dt*(boosting?race.boostDrain:race.chargeDrain),0,100);
+    if(m.recovery){
+      m.recovery.elapsed+=dt;
+      const t=m.recovery.elapsed>=this.recoverySeconds-1e-9?1:m.recovery.elapsed/this.recoverySeconds;
+      const target=m.recovery.cruiseOnly?race.baseSpeed(s.wave):this.target(s);
+      s.speed=math.mix(m.recovery.from,target,t*t);
+      if(t===1)m.recovery=null;
+    }else s.speed=math.damp(s.speed,this.target(s),2,dt);
+  },
+};
+
+const crash = {
+  duration:2.6,
+  begin(s) {s.mode='crashing';s.crashTime=0;s.lives--;s.speed=0;s.boosting=false;s.noticeTime=0;s.toastTime=0;s.invincible=0;},
+  advance(s,dt) {s.crashTime+=dt;s.elapsed+=dt;},
+  complete(s) {return s.mode==='crashing'&&s.crashTime>=this.duration-1e-9;},
+};
+
 // Automatic wave checkpoints only; no manual save slots.
 const checkpoint = {
-  key:'starhound.wave-checkpoint.v2', version:2,
+  key:'starhound.wave-checkpoint.v3', version:3,
+  legacyKey:'starhound.wave-checkpoint.v2',
+  migrate(saved) {
+    if(!saved||saved.version!==2||!saved.rules)return null;
+    const rules={...saved.rules};
+    for(const [key,ratio] of [['weapon.baseInterval',.5],['encounters.easyInterval',210/230],['encounters.hardInterval',82/95]])
+      rules[key]*=ratio;
+    for(const [path,,min,max] of tuning.fields)if(Number.isFinite(rules[path]))rules[path]=math.clamp(rules[path],min,max);
+    const updated={...saved,version:this.version,rules};return this.valid(updated)?updated:null;
+  },
   capture(s) {
     return {version:this.version,seed:s.seed,wave:s.wave,lives:s.lives,charge:s.charge,
       elapsed:s.elapsed,bestWave:s.bestWave,score:s.score,kills:s.kills,pickups:s.pickups,
@@ -151,7 +210,7 @@ const flight = ({
   damage(s, amount) {
     if(s.invincible > 0 || s.protection > 0 || s.hurt > 0) return false;
     s.hull = Math.max(0,s.hull - amount); s.hurt = 1.4;
-    s.charge = Math.max(0,s.charge - 12); return true;
+    return true;
   },
   shipPose(s) { return {position:[s.player.x,s.player.y,0],rotation:[-s.player.vy * .014, -s.player.vx * .006, -s.player.vx * .025],
     blink:s.hurt > 0 && Math.sin(s.elapsed * 38) > .25}; },
@@ -160,7 +219,7 @@ const flight = ({
 
 const weapon = ({
   levels:[1,2,4,6],labels:['SINGLE','DOUBLE','QUADRUPLE','SEXTUPLE'],toastTime:2,
-  baseInterval:.22,extraCooldown:.5,heatPerVolley:9,coolingPerSecond:22,bulletSpeed:360,bulletRadius:.3,
+  baseInterval:.11,extraCooldown:.5,heatPerVolley:9,coolingPerSecond:22,bulletSpeed:360,bulletRadius:.3,
   barrels:[[0],[-.62,.62],[-1.3,-.46,.46,1.3],[-1.9,-1.15,-.4,.4,1.15,1.9]],
   state() {return {tier:0,fireLevel:0,coolLevel:0,heat:0,overheated:false,lock:0,cooldown:0,shots:0};},
   resetHeat(w) {w.heat=0;w.overheated=false;w.lock=0;w.cooldown=0;},
@@ -185,10 +244,10 @@ const weapon = ({
 });
 
 const encounters = ({
-  spawnAhead:440, despawnBehind:25, maxObjects:90, easyInterval:230, hardInterval:95,
+  spawnAhead:440, despawnBehind:25, maxObjects:90, easyInterval:210, hardInterval:82,
   canSpawn(s,count=0) {return count<this.maxObjects&&s.nextSpawn<s.distance+this.spawnAhead;},
   alive(e,s) {return !e.dead && e.d > s.distance - this.despawnBehind;},
-  difficulty(wave) {return (wave-1)/15;},
+  difficulty(wave) {return Math.pow((wave-1)/15,.9);},
   interval(wave) {return Math.max(38,math.mix(this.easyInterval,this.hardInterval,Math.min(1,this.difficulty(wave)))-Math.max(0,wave-16)*1.8);},
   make(s) {
     const wave=race.waveAt(s.nextSpawn),d=s.nextSpawn,n=(wave-1)*64+Math.round((d-race.encounterStart(wave))/this.interval(wave));s.spawnIndex++;
@@ -239,6 +298,8 @@ const pickups = ({
   canSpawn(s) {return s.nextPickup<s.distance+encounters.spawnAhead;},
   duration:{invincible:7,turbo:7},
   types:['charge','cannon','fire','cool','invincible','turbo','repair'],
+  food:{charge:'MILK BONE',cannon:'DRUMSTICK',fire:'BACON',cool:'CHEESE',invincible:'PAW BISCUIT',turbo:'SAUSAGE',repair:'KIBBLE BOWL'},
+  invincibleFrequency:.25,
   colors:{charge:0x8eeee3,cannon:0xf291bd,fire:0x84b8ff,cool:0xceadff,invincible:0xffce72,turbo:0xffa55e,repair:0x90e99f},
   labels:{charge:'SPEED CHARGE',cannon:'CANNON UPGRADE',fire:'FIRE RATE UPGRADE',cool:'COOLING UPGRADE',invincible:'INVINCIBLE · 7 SECONDS',turbo:'TURBO · 7 SECONDS',repair:'HULL REPAIR'},
   make(type,x,y,d) {return {type:'pickup',pickup:type,x,y,d,rx:this.radius,ry:this.radius,rz:1.2,age:0,hp:Infinity,value:type==='charge'?Math.floor(math.random(this.chargeMin,this.chargeMax+1)):type==='repair'?Math.floor(math.random(this.repairMin,this.repairMax+1)):0};},
@@ -246,14 +307,18 @@ const pickups = ({
     const d=s.nextPickup;random.seed(s.seed,'pickup:'+d);
     const rest=race.recovery(d),wave=race.waveAt(d),index=Math.floor(d/this.interval);
     const type=rest?(wave>1&&d%race.waveLength<120?'repair':'charge'):this.types[index%this.types.length];
-    const result=this.make(type,math.random(-5.5,5.5),math.random(-3.4,3.4),d);
+    const result=this.make(this.rebalance(type),math.random(-5.5,5.5),math.random(-3.4,3.4),d);
     const candidate=d+(rest?this.recoveryInterval:this.interval),nextBreak=race.checkpointDistance(wave+1)+55;
     s.nextPickup=Math.min(candidate,nextBreak);return result;
   },
   drop(e,s) {
     random.seed(s.seed,'drop:'+e.d+':'+e.phase);
     const bag=s.hull<60?['repair','repair','charge','cannon','fire','cool','invincible','turbo']:['charge','charge','cannon','fire','cool','invincible','turbo','repair'];
-    return this.make(math.pick(bag),e.x,e.y,e.d);
+    return this.make(this.rebalance(math.pick(bag)),e.x,e.y,e.d);
+  },
+  rebalance(type) {
+    if(type!=='invincible'||random.next()<this.invincibleFrequency)return type;
+    return math.pick(this.types.filter(candidate=>candidate!=='invincible'));
   },
   collect(p,s) {
     const w=s.weapon;let label=this.labels[p.pickup];
@@ -263,15 +328,15 @@ const pickups = ({
     if(p.pickup==='cool'){w.coolLevel=math.clamp(w.coolLevel+1,0,3);label=`COOLING ${w.coolLevel+1}`;}
     if(p.pickup==='repair'){s.hull=math.clamp(s.hull+p.value,0,100);label+=` +${p.value}%`;}
     if(p.pickup==='invincible')s.invincible=this.duration.invincible;
-    if(p.pickup==='turbo')s.turbo=this.duration.turbo;
-    s.pickups++;s.score+=50;s.toast=label;s.toastTime=2.4;
+    if(p.pickup==='turbo')propulsion.turbo(s);
+    s.pickups++;s.score+=50;s.toast=this.food[p.pickup]+' · '+label;s.toastTime=2.4;
   },
 });
 
 // Low-poly primitives are shared by the title ship and the actual player ship.
 const assets = ({
   colors:{mint:0x89d9ce,cream:0xf0eee3,dark:0x152c36,orange:0xff754d,gold:0xffcc83,fur:0xc68b58,furLight:0xe6b57c,nose:0x171e23,visor:0x84e0e8},
-  shapes:{box:['box'],ico:['ico',1,0],octa:['octa',1,0],cone:['cone',1,1,4],cylinder:['cylinder',1,1,1,6],tetra:['tetra',1,0]},
+  shapes:{box:['box'],ico:['ico',1,0],octa:['octa',1,0],cone:['cone',1,1,4],cylinder:['cylinder',1,1,1,6],tetra:['tetra',1,0],sphere:['sphere',1,12,8],torus:['torus',1,.12,8,32],wedge:['wedge']},
   shipParts:[
     ['ico','mint',[0,-.25,0],[1.35,.6,3.15],[0,0,0]],
     ['cone','cream',[0,-.1,-2.45],[1.1,2.2,1.15],[-1.5708,.7854,0]],
@@ -316,14 +381,27 @@ const assets = ({
     ['ico','orange',[1.5,0,.15],[1.15,.13,.68],[0,0,-.18]],
   ],
   rotations(e) { return e.type==='rock' ? [e.age*.23+e.phase,e.age*.32,0] : e.type==='pickup' ? [e.age*.4,e.age*1.8,e.age*.25] : [0,0,Math.sin(e.age*2+e.phase)*.13]; },
+  // Each treat has a natural-colored silhouette and an effect-colored orbit.
+  // Parts: geometry, color, local position, scale, optional rotation.
   pickupParts:{
-    charge:[['octa',[0,0,0],[.7,1,.7],false],['octa',[0,0,0],[1.2,1.5,1.2],true]],
-    cannon:[['box',[-.45,0,0],[.3,1.3,.4],false],['box',[.45,0,0],[.3,1.3,.4],false],['box',[0,-.5,0],[1.25,.25,.4],false]],
-    fire:[['tetra',[0,.4,0],[.9,.9,.9],false],['tetra',[0,-.5,0],[.55,.55,.55],false]],
-    cool:[['box',[0,0,0],[1.6,.2,.2],false],['box',[0,0,0],[.2,1.6,.2],false],['box',[0,0,0],[.2,.2,1.6],false],['octa',[0,0,0],[1.05,1.05,1.05],true]],
-    invincible:[['ico',[0,0,0],[1.15,1.15,1.15],true],['octa',[0,0,0],[.45,.45,.45],false]],
-    turbo:[['cone',[-.5,0,0],[.4,1.3,.4],false],['cone',[0,.35,0],[.4,1.3,.4],false],['cone',[.5,0,0],[.4,1.3,.4],false]],
-    repair:[['box',[0,0,0],[1.5,.45,.45],false],['box',[0,0,0],[.45,1.5,.45],false]],
+    charge:[['box',0xf7dfb0,[0,0,0],[1.7,.5,.4]],
+      ...[-.85,.85].flatMap(x=>[-.25,.25].map(y=>['sphere',0xf7dfb0,[x,y,0],[.38,.38,.3]]))],
+    cannon:[['ico',0xb95b35,[0,.25,0],[.9,1.15,.65]],['box',0xffe4b8,[0,-.9,0],[.28,.9,.28]],
+      ['sphere',0xffe4b8,[-.18,-1.35,0],[.28,.24,.24]],['sphere',0xffe4b8,[.18,-1.35,0],[.28,.24,.24]]],
+    fire:Array.from({length:7},(_,i)=>[
+      ['box',0xc95040,[Math.sin(i*.9)*.15,(i-3)*.32,0],[.95,.37,.22]],
+      ['box',0xffc7a1,[Math.sin(i*.9)*.15-.18,(i-3)*.32,-.13],[.16,.37,.05]],
+    ]).flat(),
+    cool:[['wedge',0xffd35c,[0,0,0],[1.6,1.4,1.1]],
+      ['sphere',0xc8882e,[-.35,-.3,-.57],[.15,.15,.03]],['sphere',0xc8882e,[.32,-.38,-.57],[.2,.2,.03]],
+      ['sphere',0xc8882e,[-.2,.23,-.57],[.1,.1,.03]]],
+    invincible:[['sphere',0xbd884d,[0,-.35,0],[.78,.65,.28]],
+      ...[-.7,-.25,.25,.7].map((x,i)=>['sphere',0xf0c585,[x,i===0||i===3?.35:.7,0],[.26,.32,.22]])],
+    turbo:[['cylinder',0xa84931,[0,0,0],[.45,1.75,.45]],
+      ['sphere',0xcc7950,[0,.87,0],[.45,.45,.45]],['sphere',0xcc7950,[0,-.87,0],[.45,.45,.45]],
+      ...[-.45,0,.45].map(y=>['box',0xf4ac70,[0,y,-.45],[.6,.08,.04]])],
+    repair:[['cylinder',0x6ab7cb,[0,-.3,0],[1,.55,1]],['torus',0xd2f7f2,[0,0,0],[1,1,1],[Math.PI/2,0,0]],
+      ...[-.5,0,.5].flatMap(x=>[-.3,.25].map(z=>['ico',0x9b683e,[x,.08,z],[.24,.21,.24]]))],
   },
 });
 
@@ -360,25 +438,31 @@ const gfx = ({
   clear:0x090f16,fogDensity:.0022,exposure:1.15,maxPixelRatio:1.75,
   camera:{fov:63,near:.1,far:650,titlePosition:[5,5.6,15],titleLook:[1.6,.1,0],flightPosition:[0,3.2,12],flightLook:[0,1,-60]},
   lighting:{ambient:1.6,key:3.5,rim:4.2,keyPosition:[-6,12,8],rimPosition:[9,3,-4]},
-  particle:{capacity:650,size:.22,smokeLife:1.15,streamLife:.4,explosionLife:1.05,
-    smokeColors:[0xb4d1cc,0x668482,0xf3a779],streamColor:0x99fff1,explosionColors:[0xff754d,0xffcf84,0xeaf4e8]},
+  particle:{capacity:1400,emissionRate:95,smokeLife:.9,plasmaLife:.24,explosionLife:1.25,
+    smokeColors:[0x8295a5,0xb4d1cc,0x647585],plasmaColors:[0xffd69a,0xff8a43,0x99fff1],explosionColors:[0xff754d,0xffcf84,0xeaf4e8]},
   starCount:220,
-  stars() { const a=new Float32Array(this.starCount*3);for(let i=0;i<this.starCount;i++)a.set([math.visualRandom(-180,180),math.visualRandom(-95,95),math.visualRandom(-420,20)],i*3);return a; },
-  particleAt(kind,x,y,d,fast=false) {
-    const life=kind==='explosion'?this.particle.explosionLife:kind==='stream'?this.particle.streamLife:this.particle.smokeLife;
-    return {x,y,d,vx:math.visualRandom(-1,1)*(kind==='explosion'?15:.8),vy:math.visualRandom(-1,1)*(kind==='explosion'?15:.8),vd:kind==='stream'?-75:math.visualRandom(-8,8),age:0,life,
-      color:kind==='explosion'?math.visualPick(this.particle.explosionColors):kind==='stream'?this.particle.streamColor:math.visualPick(this.particle.smokeColors),kind,fast};
+  stars() {const a=new Float32Array(this.starCount*3);for(let i=0;i<this.starCount;i++)a.set([math.visualRandom(-180,180),math.visualRandom(-95,95),math.visualRandom(-420,20)],i*3);return a;},
+  particleAt(kind,x,y,d) {
+    const cfg=this.particle,firework=kind==='firework',burst=kind==='explosion'||firework;
+    const life=kind==='smoke'?cfg.smokeLife:kind==='plasma'?cfg.plasmaLife:firework?1.7:cfg.explosionLife;
+    const colors=kind==='smoke'?cfg.smokeColors:kind==='plasma'?cfg.plasmaColors:firework?race.colors:cfg.explosionColors;
+    return {kind,x,y,d,vx:math.visualRandom(-1,1)*(burst?18:.45),vy:math.visualRandom(-1,1)*(burst?18:.45),
+      vd:burst?math.visualRandom(-12,12):-9,age:0,life:life*math.visualRandom(.8,1.2),color:math.visualPick(colors)};
   },
   stepParticle(p,dt) {p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.d+=p.vd*dt;},
-  particleScale(p) { return p.kind==='smoke'?.18+p.age*.38:p.kind==='stream'?.12: .3*(1-p.age/p.life); },
-  particleOpacity(p) { return Math.max(0,1-p.age/p.life)*.75; },
-  particleOffset(index) { return index*3; },
-  trail(s) { const d=s.distance-3.2;return [this.particleAt('smoke',s.player.x-1.45,s.player.y-.23,d),this.particleAt('smoke',s.player.x+1.45,s.player.y-.23,d)]; },
-  stream(s) { return this.particleAt('stream',math.visualRandom(-11,11),math.visualRandom(-7,7),s.distance+math.visualRandom(-5,110),true); },
-  explode(e) { return Array.from({length:44},()=>this.particleAt('explosion',e.x,e.y,e.d)); },
+  particleScale(p) {return p.kind==='smoke'?.15+p.age*.8:p.kind==='plasma'?.27*(1-p.age/p.life):.22+.3*(1-p.age/p.life);},
+  particleOpacity(p) {return Math.max(0,1-p.age/p.life)*(p.kind==='smoke'?.38:.95);},
+  trail(s) {
+    const result=[];
+    for(const x of [-1.45,1.45])for(const kind of ['smoke','plasma'])
+      result.push(this.particleAt(kind,s.player.x+x*renderMath.flightScale,s.player.y-.23*renderMath.flightScale,s.distance-3.15*renderMath.flightScale));
+    return result;
+  },
+  explode(e,count=60) {return Array.from({length:count},()=>this.particleAt('explosion',e.x,e.y,e.d));},
+  fireworks(s) {return [-9,9].flatMap(x=>Array.from({length:36},()=>this.particleAt('firework',x,2,s.distance+4)));},
   titleTime(t,dt) { return t+dt; },
   titleDistance(t) {return t*9;},
-  flightCamera(s) { return {position:[s.player.x*.25,3.2+s.player.y*.22,12],look:[s.player.x*.5,1+s.player.y*.45,-60]}; },
+  flightCamera(s) { return {position:[s.player.x*.85,3.2+s.player.y*.8,12],look:[s.player.x*.95,1+s.player.y*.9,-60]}; },
   ratio(dpr) { return Math.min(dpr,this.maxPixelRatio); },
 });
 
@@ -386,7 +470,6 @@ const ui = ({
   keys:['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','ShiftLeft','ShiftRight'],
   titleMenuIndex(index,count,code) {return index<0?(code==='ArrowUp'?count-1:0):(index+(code==='ArrowUp'?-1:1)+count)%count;},
   sectorText(s) {return math.pad(s.sector+1);},
-  progressText(s) {return math.percent(race.progress(s.distance)*100);},
   roman:['I','II','III','IV'],
   speedText(s) { return String(Math.round(s.speed)).padStart(3,'0'); },
   chargeText(s) {return math.percent(s.charge);},
@@ -423,8 +506,8 @@ const music = ({
     invincible:{name:'Goodboy Forever',bpm:104,root:60,scale:[0,2,4,7,9],chords:[0,3,1,4,0,2,3,4],bass:[0,null,7,null,0,null,12,7,0,null,7,null,4,null,7,12],lead:[0,2,4,null,7,9,7,null,4,2,0,null,2,4,7,9],voice:'glass',pad:'brightPad',drums:'four',flare:true},
     defeat:{name:'Drifting Home',bpm:62,root:45,scale:[0,2,3,5,7,8,10],chords:[0,5,3,4,0,3,1,4],bass:[0,null,null,null,null,null,null,null,7,null,null,null,null,null,null,null],lead:[4,null,null,null,2,null,null,null,0,null,null,null,null,null,null,null],voice:'glass',pad:'pad',drums:'sad',flare:false},
   },
-  trackFor(s) {return s.mode==='title'?'intro':s.mode==='defeat'?'defeat':s.invincible>0?'invincible':`game${s.sector%4}`;},
-  tempo(track,s) {return track.startsWith('game') ? this.tracks[track].bpm * math.clamp(s.speed/80,.85,2) : this.tracks[track].bpm;},
+  trackFor(s,index=s.sector%4) {return s.mode==='crashing'?null:s.mode==='title'?'intro':s.mode==='defeat'?'defeat':s.invincible>0?'invincible':`game${index}`;},
+  tempo(track,s) {return track.startsWith('game') ? this.tracks[track].bpm * (1+(math.clamp(s.speed/80,.85,2)-1)*.5) : this.tracks[track].bpm;},
   transitionStep(id,step,positions) {return positions[id] ?? Math.ceil(step/16)*16;},
   stepSeconds(bpm) {return 60/bpm/4;},
   frequency(midi) {return 440*2**((midi-69)/12);},
@@ -461,7 +544,15 @@ const music = ({
 });
 
 const sfx = ({
-  noiseSeconds:1,filterCutoff:4400,
+  noiseSeconds:2,filterCutoff:4400,
+  explosions:{
+    enemy:{sub:110,to:32,subGain:.7,noiseCutoff:1400,noiseGain:.5,duration:.85},
+    rock:{sub:76,to:27,subGain:.55,noiseCutoff:720,noiseGain:.65,duration:1.05},
+    crash:{sub:90,to:22,subGain:1.05,noiseCutoff:1800,noiseGain:.85,duration:1.9},
+  },
+  fanfare:[{from:523,to:523,offset:0,duration:.15,gain:.17,wave:'triangle'},
+    {from:659,to:659,offset:.12,duration:.15,gain:.17,wave:'triangle'},
+    {from:784,to:1046,offset:.24,duration:.38,gain:.19,wave:'triangle'}],
   engine:{wave:'triangle',smoothing:.15,noiseGain:.03},
   engineState(s) {const active=s.mode==='playing',fast=s.boosting||s.turbo>0;return {frequency:35+s.speed*.65,cutoff:fast?1100:350,gain:active?(fast?.044:.022):0};},
   tone:{charge:{from:440,to:1760,duration:.24,gain:.12,wave:'sine'},cannon:{from:220,to:880,duration:.45,gain:.14,wave:'square'},fire:{from:880,to:2640,duration:.18,gain:.12,wave:'triangle'},cool:{from:1760,to:440,duration:.4,gain:.12,wave:'sine'},invincible:{from:660,to:2640,duration:.6,gain:.14,wave:'triangle'},turbo:{from:110,to:990,duration:.55,gain:.15,wave:'sawtooth'},repair:{from:330,to:660,duration:.5,gain:.13,wave:'sine'},shot:{from:1150,to:270,duration:.11,gain:.15,wave:'sawtooth'},pickup:{from:520,to:1560,duration:.3,gain:.13,wave:'sine'},upgrade:{from:390,to:1170,duration:.5,gain:.14,wave:'triangle'},overheat:{from:250,to:105,duration:.5,gain:.12,wave:'sawtooth'},launch:{from:110,to:520,duration:1,gain:.15,wave:'sawtooth'},wave:{from:600,to:1200,duration:.24,gain:.09,wave:'triangle'}},
@@ -485,16 +576,41 @@ const renderMath = ({
   titlePose(t,aspect) {const pose=flight.titlePose(t);if(aspect<1.3)pose.position[0]=3.5;return pose;},
   titleRotation(t) {return [.08,2.6+Math.sin(t*.2)*.09,-.12+Math.sin(t*.5)*.025];},
   titleCamera(aspect) {return aspect<1.3?{position:[3,5.6,17],look:[-1,.1,0]}:{position:gfx.camera.titlePosition,look:gfx.camera.titleLook};},
-  particleTransform(p,origin) {const r=gfx.particleScale(p);return {position:tunnel.world(p.x,p.y,p.d,origin),scale:p.kind==='stream'?[.055,.055,3]:[r,r,r],rotation:[p.age,p.age,0],fade:gfx.particleOpacity(p)};},
-  trailInterval:.026,
   flightShieldScale(t) {return 2.5+Math.sin(t*4)*.04;},
   bulletScale:[.09,.09,2.2],hostileScale:[.2,.2,1.4],pickupScale:[.62,.62,.62],
   previewParticleOrigin(t) {return gfx.titleDistance(t);},
   reticlePosition(point,width,height) {return {x:(point.x*.5+.5)*width,y:(-point.y*.5+.5)*height};},
   impactFlash(s) {return s.hurt>1.15?math.clamp((s.hurt-1.15)*2,0,.35):0;},
-  speedGlow(s) {return s.boosting||s.turbo>0?.2:0;},
+  speedGlow(s) {return speedEffects.intensity(s.speed)*.25;},
   cameraDamp:4,flashTime:.12,
 });
+
+const speedEffects = {
+  streakCount:180,streakStart:35,streakFull:200,blurStart:155,blurFull:300,hudStart:240,hudFull:420,
+  intensity(speed) {return math.clamp((speed-this.streakStart)/(this.streakFull-this.streakStart),0,1);},
+  blur(speed) {return math.clamp((speed-this.blurStart)/(this.blurFull-this.blurStart),0,1);},
+  hudBlur(speed) {return math.clamp((speed-this.hudStart)/(this.hudFull-this.hudStart),0,1)*3;},
+};
+
+const scenery = {
+  spacing:115,clearance:28,corridorRadius:15,
+  sample(index,salt) {const n=Math.sin(index*127.1+salt*311.7)*43758.5453;return n-Math.floor(n);},
+  placement(index) {
+    const d=index*this.spacing+55,side=index%2?1:-1,radius=22;
+    const p={index,d,radius,kind:['station','rock','satellite'][index%3],
+      x:side*(65+this.sample(index,1)*40),y:(this.sample(index,2)-.5)*85,
+      scale:.7+this.sample(index,3)*.55,rotation:this.sample(index,4)*math.tau};
+    return p;
+  },
+  clearsPath(p) {
+    const center=tunnel.center(p.d),minimum=this.corridorRadius+this.clearance+p.radius;
+    for(let offset=-p.radius;offset<=p.radius;offset+=3){
+      const path=tunnel.center(p.d+offset);
+      if(Math.hypot(center.x+p.x-path.x,center.y+p.y-path.y)<minimum)return false;
+    }
+    return true;
+  },
+};
 
 // Prerecorded character dialogue. Only these small MP3 files ship with the game.
 const voices = {
@@ -518,11 +634,11 @@ const tuning = {
     ['race.speedPerWave','Speed per wave',1,8,.1],['race.endlessAcceleration','Endless speed growth',0,12,.1],
     ['race.recoveryLength','Bonus stretch distance',80,350,5],['race.chargeDrain','Charge drain / second',0,5,.1],
     ['race.boostDrain','Boost drain / second',5,30,.5],['encounters.easyInterval','Early obstacle spacing',150,400,5],
-    ['encounters.hardInterval','Wave 16 obstacle spacing',55,180,5],['weapon.baseInterval','Fire interval / seconds',.12,.5,.01],
+    ['encounters.hardInterval','Wave 16 obstacle spacing',55,180,5],['weapon.baseInterval','Fire interval / seconds',.05,.5,.01],
     ['weapon.heatPerVolley','Heat per volley',5,18,.1],['weapon.coolingPerSecond','Cooling / second',12,45,.5],
     ['weapon.extraCooldown','Extra overheat lock / seconds',0,2,.1],['pickups.interval','Pickup spacing',120,500,5],
     ['gfx.fogDensity','Space fog',0,.01,.0001],['renderMath.wallOpacity','Tunnel wall opacity',0,.2,.005],
-    ['renderMath.lineOpacity','Tunnel rail opacity',0,.3,.005],['music.musicGain','Music volume',0,1,.05],['music.sfxGain','Effects volume',0,1,.05],
+    ['renderMath.lineOpacity','Tunnel rail opacity',0,.3,.005],
   ],
   objects:{race,encounters,weapon,pickups,gfx,renderMath,music},
   values() {return Object.fromEntries(this.fields.map(([path])=>{const [group,key]=path.split('.');return [path,this.objects[group][key]];}));},
@@ -533,5 +649,5 @@ const tuning = {
   exportSource() {return '// STARHOUND complete classic settings. Paste over js/settings.js.\n('+configure.toString()+')(window, '+JSON.stringify({...this.values(),seed:this.seed},null,2)+');\n';},
 };
 tuning.apply(overrides);if(typeof overrides.seed==='string')tuning.seed=overrides.seed.slice(0,80);
-namespace.settings = Object.freeze({math,random,tunnel,race,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,music,sfx,voices,renderMath,tuning});
+namespace.settings = Object.freeze({math,random,tunnel,race,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,music,sfx,voices,renderMath,speedEffects,scenery,propulsion,crash,tuning});
 })(window);

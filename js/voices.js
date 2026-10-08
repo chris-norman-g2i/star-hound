@@ -6,9 +6,9 @@ const {voices,music,race}=namespace.settings;
  * One speaker at a time; announcements take precedence over occasional chatter.
  */
 class VoiceEngine {
-  constructor(onSpeaking=()=>{}) {
+  constructor(onSpeaking=()=>{},volume=()=>1) {
     this.audio=window.Audio?new window.Audio():null;
-    this.onSpeaking=onSpeaking;this.enabled=false;this.paused=false;this.time=0;
+    this.onSpeaking=onSpeaking;this.volume=volume;this.enabled=false;this.paused=false;this.time=0;
     this.queue=[];this.active=null;this.generation=0;this.nextAvailable=0;
     this.nextChatter=0;this.nextEncouragement=voices.encouragementGap;this.encouragementIndex=0;
     if(this.audio){
@@ -17,7 +17,7 @@ class VoiceEngine {
       this.audio.addEventListener('error',()=>this.finish());
     }
   }
-  setEnabled(enabled) {this.enabled=enabled;if(!enabled)this.clear();}
+  setEnabled(enabled) {if(enabled===this.enabled)return;this.enabled=enabled;if(!enabled)this.clear();}
   clear() {
     this.generation++;this.queue.length=0;this.active=null;
     if(this.audio){this.audio.pause();this.audio.removeAttribute('src');this.audio.load();}
@@ -64,13 +64,13 @@ class VoiceEngine {
     const index=this.queue.findIndex(entry=>entry.ready<=this.time);if(index<0)return;
     this.active=this.queue.splice(index,1)[0];const generation=++this.generation;
     this.audio.src=voices.folder+voices.clips[this.active.id];
-    this.audio.volume=Math.min(1,Math.max(0,music.master*voices.volume));
+    this.audio.volume=Math.min(1,Math.max(0,music.master*voices.volume*this.volume()));
     this.onSpeaking(true);
     try {Promise.resolve(this.audio.play()).catch(()=>{if(generation===this.generation)this.finish();});}
     catch {if(generation===this.generation)this.finish();}
   }
   update(state,dt) {
-    if(this.audio)this.audio.volume=Math.min(1,Math.max(0,music.master*voices.volume));
+    if(this.audio)this.audio.volume=Math.min(1,Math.max(0,music.master*voices.volume*this.volume()));
     if(this.paused)return;this.time+=dt;
     if(state.mode==='title'){if(this.active||this.queue.length)this.clear();return;}
     this.drain();

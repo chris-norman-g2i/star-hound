@@ -1,133 +1,138 @@
 STAR HOUND — BONE CHASER
 Live source folder: /Users/mana/codex/starhound
-A static, keyboard-controlled Three.js space runner. No install, build, backend or server required.
+A desktop, keyboard-controlled Three.js space runner. No install, build, backend or server required.
+
+ARCHIVED VERSION
+archives/starhound-before-redesign-2026-10-07/ is the uncompressed, verified snapshot made BEFORE this redesign.
+It contains all 145 original working-folder files, including assets, work/, output/ and hidden files.
+Git metadata and recursive archive folders are excluded. Open that folder's index.html to play the previous version.
+The archive keeps its original checkpoint storage key. The redesigned game uses a separate versioned key;
+valid original checkpoints are imported once with the firing/density adjustments, without modifying the archived save.
 
 LOCAL PLAY
-Double-click index.html. It opens directly using file://.
-Keep index.html, style.css and js/ together. Three.js loads from a pinned CDN; internet is required.
-The supplied hangar artwork is stored locally in assets/title/hangar-reference.png. Keep assets/ with the page.
-All scripts use ordered classic script tags and register on window.Starhound. No modules, import maps or fetched local files.
-System fonts are available if Google Fonts cannot load.
+Double-click index.html. Keep index.html, style.css, js/ and assets/ together.
+Three.js r160 loads from a pinned CDN, so internet is required. All scripts are ordered classic scripts;
+there are no modules, import maps or fetched local files. Artwork, fonts and voices are local.
 
-GITHUB PAGES
-Commit index.html, style.css, js/, assets/, README.txt and .nojekyll to your repository root.
-Exclude work/ (development checks and scratch files).
-In GitHub Settings > Pages, deploy from your branch and / (root). No Actions build or npm commands.
-Relative asset paths work under repository subpaths.
+STATIC HOSTING
+Publish index.html, style.css, js/, assets/, README.txt and .nojekyll at the site root.
+Relative paths support repository subpaths. No build step is needed.
+work/, output/ and archives/ are development/history folders and are not required to play the new game.
 
 CONTROLS
-WASD / arrows: steer. Space: hold fire. Shift: boost with speed charge.
-Esc / P: pause or resume. M: sound. Enter: launch from hangar.
-Tab, Shift+Tab, Enter and Space operate all menu buttons and inputs.
-Title menu: Up/Down select Start Flight, Continue, Flight Manual or Options; Enter confirms. Continue is disabled without a checkpoint.
-F2: tuning panel (pauses an active run). Close it, then resume flight.
-[ / ]: previous / next wave during a run. These tuning shortcuts replace its checkpoint.
-The game pauses when hidden or unfocused.
+WASD / arrows: steer. Space: hold fire. Shift: boost using speed charge.
+Esc / P: pause/resume, including during a crash. Enter: launch from the hangar.
+M during gameplay: immediately start the next of four gameplay tracks, wrapping back to the first.
+M does not mute. Options contains Mute All and independent music, effects and voice volume sliders.
+F2: open/close Options and flight tuning. Close it, then resume flight.
+[ / ]: previous/next wave (tuning shortcuts replace the current checkpoint).
+The game pauses when hidden or unfocused. Menu buttons retain keyboard navigation.
 
-ENDLESS FLIGHT
-Three lives. No finish line or win condition. Four-wave sectors continue with cycling names/colors.
-The first sixteen waves target a 2–5 minute challenge; cruising through them takes about 3m42s in simulation.
-Difficulty increases noticeably from wave 4 and adds combined barriers/enemies from wave 7.
-Speed and density keep increasing after wave 16. Ten-minute survival needs exceptional luck and skill.
-Every wave starts with a quiet bonus stretch, extra charges and repairs. Gameplay never stops between waves.
-Shoot drones/rocks, dodge indestructible orange barriers. Enemies drop pickups.
+FLIGHT AND DIFFICULTY
+Three lives, endless four-wave sectors, no finish line or victory screen.
+Starting encounter spacing is 210 units (previously 230), falling toward 82 at wave 16 (previously 95).
+The initial difficulty curve uses exponent 0.9 for a slightly steeper early ramp.
+Wave-dependent cruising speed and endless speed growth retain their existing progression.
+Shoot drones/rocks and avoid indestructible orange barriers. Outer flight boundaries only constrain steering;
+they are not collision hazards. Path bends are more dramatic visually and require no corrective steering.
+Stations, asteroids and satellites are decorative. Their bounding spheres are checked against the curved
+flight corridor, with at least 28 units of clearance beyond both the corridor and the object's bounds.
+The camera follows steering more tightly while keeping its original distance and field of view.
 
-CANNON & PICKUPS
-Infinite ammunition; no clips, reloads or reload key. Hold or feather Space.
-Cannon tiers: single > double > quadruple > sextuple. Fire-rate and cooling upgrades cap at IV.
-Overheating locks firing until fully cooled, plus 0.5 seconds. Cooling upgrades speed heat recovery.
-Charge: +10–15. Repair: +10–25% hull. Turbo: 1.4x for 7s. Invincibility: 7s with countdown.
-Manual boost has its own multiplier and can stack with turbo while draining charge.
-All seven pickup types have distinct polygon silhouettes, colors and synthesized sounds.
-Each barrel has a reticle marker projected onto its actual forward firing path.
-Tunnel walls/rails are faint, fog is reduced, and speed/impact overlays complement trails and explosions.
+COLLISION SPEED
+Speed bonuses have explicit charge, turbo and held-boost contributions. Turbo/boost activation compounds
+with active bonuses, while collisions can reduce all current contributions together.
+Hitting a rock or orange barrier immediately stops forward movement, clears charge and turbo, cancels boost,
+and accelerates back to that wave's cruising speed over 1.2 seconds with a quadratic ease-in.
+Held Shift cannot reactivate a canceled boost until it is released and pressed again.
+Hitting an enemy immediately retains 55% of forward speed and 67% of the current bonus above cruise:
+a 2.0x modifier becomes 1.67x. Forward speed recovers over 1.2 seconds; the lost bonus is not restored.
+Speed penalties apply during invincibility and are independent of hull damage immunity.
+Enemy projectiles still cause hull damage but are not physical obstacle/enemy momentum collisions.
 
-AUTOMATIC WAVE CHECKPOINTS
-A checkpoint records the start of the current wave: seed, rules, lives, upgrades, charge, score and counters.
-On a lost life, restart there with full hull and a three-second protection shield.
-Upgrades/score/charge collected since that checkpoint roll back. Total flight time keeps counting across deaths.
-Resume from checkpoint appears in the hangar when a checkpoint exists. There is no manual save UI or save slot.
-New run warns that it clears the previous checkpoint. Losing all lives clears the checkpoint and shows results.
-Browser local storage retains automatic checkpoints across page reloads when supported. Browser rules for file:// storage vary.
-If storage is blocked, session checkpoints still work and the hangar explains that closing loses them.
-Malformed or incompatible checkpoints are ignored safely. Resuming restores the checkpoint's seed and numeric rules.
+CANNON AND FOOD PICKUPS
+Infinite ammunition, four cannon tiers (1/2/4/6 barrels), fire-rate and cooling upgrades through IV.
+Base firing interval is 0.11 seconds, half the original 0.22, with the same reduction at every firing upgrade.
+Heat per volley, cooling and the extra 0.5-second overheat lock are unchanged; faster overheating is intentional.
+Milk bone: speed charge +10–15. Drumstick: cannon upgrade. Bacon: firing upgrade. Cheese: cooling upgrade.
+Paw biscuit: invincibility for 7 seconds. Sausage: 1.4x turbo for 7 seconds. Kibble bowl: hull repair +10–25%.
+Each food has a distinct natural-colored silhouette and an effect-colored orbit.
+Invincibility opportunities retain only 25% of their previous frequency, both on the path and in enemy drops.
+Other pickup types replace the removed opportunities, preserving overall pickup/drop frequency.
+During invincibility, all dog/ship materials smoothly cycle through the rainbow once per second.
+The invincibility icosphere is gone. The separate three-second respawn shield remains unchanged.
 
-TUNING & REPRODUCIBILITY
-F2 or Flight Tuning opens numeric overrides, a selectable seed and wave jump controls.
-Applying overrides restarts the current wave, keeping current upgrades, counters and remaining lives.
-Selected seed applies to new runs; checkpoint resumes retain their seed.
-Gameplay random values are isolated from visual/audio randomness. Wave layouts repeat with the same seed and rules.
-Copy Complete Settings.js copies a self-contained classic settings script, including overrides and selected seed.
-Paste it over the ENTIRE js/settings.js file in your IDE, then reload the page.
-If clipboard access is blocked on file://, the full replacement appears selected in a text box: copy it with Ctrl+C / Cmd+C.
-No server or additional setup is needed. Specialized visual/music configurators are deferred to polish.
+CHECKPOINTS, CRASHES AND RESUME
+A large, luminous circular gate encloses the full flight corridor at each wave boundary and cannot be missed.
+Passing it saves the wave start and triggers a short fanfare, two particle fireworks and a large checkmark.
+A checkpoint retains seed, rules, lives, upgrades, charge, score and counters. Gameplay continues during saving.
+Every lost life scatters the ship into debris, visibly ejects the dog beneath a parachute, stops all music,
+and plays a deep bass explosion. Simulation waits 2.6 seconds before restoring the checkpoint or showing defeat.
+Pause freezes the crash timer and presentation. Each crash consumes exactly one life.
+With lives remaining, restore full hull and the original three-second respawn protection. Collected upgrades,
+charge and score since the checkpoint roll back; elapsed time and best wave carry forward.
+After all lives are lost, the checkpoint is cleared and the defeat screen/music appear only after the crash.
+Start Fresh offers equal-sized, stacked New Flight / Resume Checkpoint choices. Resume launches gameplay immediately.
+A new flight replaces the previous checkpoint. Options audio preferences persist independently of game checkpoints.
+Blocked local storage falls back to session checkpoints; malformed saves are ignored safely.
+Browser rules for file:// storage may vary.
 
-TITLE SCREEN
-The Starhound / Bone Chaser painting uses a clean static background with its original scarf and tail removed, with a responsive, uncropped composition.
-Separate transparent scarf and tail sprite DIVs show eight stronger-wind frames, each lasting 0.24 seconds (1.92-second loop), plus very subtle hangar-light changes.
-The tail is 20% thinner and 20% longer. Both attachment points stay fixed against the background.
-Animation pauses out of the hangar. Reduced-motion preferences hold a static frame. The logo, camera and ship stay fixed.
-Title timing, sprite positions, proportions and lighting values are centralized in gfx.hangar in js/settings.js.
-Generated asset descriptions and image-generation prompts are recorded in assets/title/asset-notes.txt.
-Options opens the existing tuning controls and includes the sound toggle. All menu actions support keyboard navigation.
+MUSIC AND EFFECTS
+The original four gameplay compositions remain: Copper Funk, Glass Arcade, Afterburn Velvet and Solar Disco.
+Gameplay tempo still follows absolute speed, with half the previous rate of tempo growth.
+Automatic sector changes advance the current playlist choice, including after manual M switches.
+Manual switches restart the selected track at its beginning. Automatic/temporary returns retain arrangement position.
+Title (Soft Launch), invincibility (Goodboy Forever) and defeat (Drifting Home) retain their separate tracks.
+M during invincibility immediately selects the next gameplay track for the rest of that invincibility period.
+Music and effects have separate ambience returns behind their own volume controls; muting a channel also mutes its tails.
+Enemy explosions use a sharp bass drop and brighter noise; rock explosions use a lower, rougher rumble.
+Ship crashes have the deepest, longest explosion. Character voices retain their one-speaker queue and music ducking.
 
-PAUSE SCREEN
-The pause and run-results panel uses the husky hangar artwork, cool blue framing, orange selected actions and chunky rounded Lilita One lettering.
-Flight time, takedowns and points have separate readable labels. Resume, new-flight checkpoint confirmation and return-to-hangar behavior are retained.
-The display font is bundled in assets/fonts/ alongside its SIL Open Font License, so it works without a font-service connection.
-The menu adapts to phones and short landscape screens, with a visible keyboard-focus outline.
+VISUAL EFFECTS
+Exhaust uses soft smoke and luminous plasma sprites rather than triangle meshes.
+Star streaks grow continuously from absolute speed, including normal cruise, independently of turbo/boost flags.
+Streaks align with the camera's forward axis, without arbitrary particle rotation.
+Radial camera blur and temporal motion trails start above speed 155, reaching full strength at 300.
+The HUD stays sharp at first; its blur begins above 240, increasing to 3 pixels at 420.
+These thresholds are centralized in speedEffects in js/settings.js.
+Title artwork, animation, ship/dog models and enemy varieties are retained. The demo targets desktop browsers.
 
-SCRIPTS
-js/settings.js: all constants, numerical rules, procedural assets/particles/music, seeded randomness, checkpoint data and tuning/export.
-js/game.js: entry point and lifecycle/frame orchestration.
-js/systems.js: encounters, firing, collision events, pickups and life-loss dispatch.
-js/checkpoints.js: automatic checkpoint persistence, resume, respawn and storage fallback.
-js/controls.js: tuning/seed UI, export clipboard fallback and wave navigation.
-js/scene.js: Three.js resources, dog/starship meshes, projected reticle, open-space tunnel and particles.
-js/hangar.js: aligned sprite DIVs, eight title frames, subtle lights and reduced-motion handling.
-js/interface.js: menus, HUD, checkpoint notices, manual, pause and defeat results.
-js/sound.js: Web Audio instruments, stereo effects, drums, engine, scheduling and transitions.
-js/voices.js: prerecorded character dialogue, one-speaker queue, cooldowns and pause/mute handling.
-js/three-loader.js: registers the CDN engine on Starhound.
+SOURCE RESPONSIBILITIES
+js/settings.js: numerical rules, bonus/recovery state, crash timing, checkpoint schema, pickup models,
+seeded content, music scores, effects/scenery parameters and tuning/export.
+js/game.js: lifecycle, input and frame coordination.
+js/systems.js: encounter/firing/collision simulation and typed presentation events.
+js/checkpoints.js: persistence, legacy migration and restoration after the crash completes.
+js/scene.js: ship/entity rendering, rainbow material ownership, camera and debris/dog presentation.
+js/effects.js: pooled sprite particles, aligned star streaks and radial/temporal render passes.
+js/environment.js: bounded decorative scenery and checkpoint gates, independent of gameplay randomness.
+js/sound.js: Web Audio ownership, four-track selection, mixing and layered explosions.
+js/voices.js: local voice playback and one-speaker queue.
+js/interface.js: HUD, confirmation dialog, menus and checkpoint notices.
+js/controls.js: numeric tuning, seed, jumps and complete settings export.
+js/hangar.js: original aligned title animation. js/three-loader.js: registers the pinned CDN engine.
 
-ORIGINAL MUSIC (7 TRACKS)
-Soft Launch: mellow intro. Copper Funk: syncopated bass/plucks. Glass Arcade: glass arpeggios.
-Afterburn Velvet: broken-beat synth. Solar Disco: disco harmonies. Goodboy Forever: invincibility dance.
-Drifting Home: downtempo defeat. Gameplay tempo follows speed; invincibility stays at 104 BPM.
-Track changes crossfade and resume remembered arrangement positions after temporary invincibility.
-Audio is synthesized locally with Web Audio and unlocked by a player gesture.
+TUNING
+Applying numeric overrides restarts the wave while retaining upgrades and lives. Audio sliders apply separately
+and never restart the wave. Checkpoint resumes retain their saved numerical rules and seed.
+Copy Complete Settings.js exports the entire classic settings script, including overrides and seed.
+If clipboard access is blocked, select/copy the supplied text and replace js/settings.js manually.
 
-CHARACTER VOICES (16 CLIPS)
-Seven cool male dog-hero lines and nine female ship-computer lines live in assets/audio/voices/.
-They were generated locally with free Kokoro TTS; no speech API or model runs in the game.
-Open assets/audio/voices/preview.html to audition every line or play a character's full set.
-Launch, wave checkpoints, continuation, ship loss and respawn trigger announcements.
-Hits, low hull, enemy kills, powered pickups and close hazard passes trigger occasional hero quips.
-Pickup praise and bonus-stretch encouragement rotate with a shared chatter cooldown.
-Only one voice plays at once; announcements take priority and music/effects soften during speech.
-M controls all sound, pause holds the current phrase, and returning to the hangar clears dialogue.
-Voice volume, spacing and file paths are configured in settings.voices in js/settings.js.
-Keep assets/audio/voices/ with the game on both file:// and GitHub Pages.
-Exact phrases, generation settings, source links and licensing notes are recorded beside the clips.
-Development-only generation and recognition tools live in work/voices/; unprocessed WAV masters
-are kept there, and two combined listening previews are saved in output/audio/.
+VERIFICATION
+node work/qa/redesign-rules.cjs checks collision penalties/immunity, 1.2-second recovery, all firing upgrades,
+overheat recovery at multiple frame intervals, guaranteed wave saves, all three 2.6-second crashes and rollback,
+quarter-frequency invincibility on paths/drops, seven food models, tempo scaling, scenery clearance, seed replay,
+blocked storage, legacy checkpoint import, exhausted-life clearing and complete settings export.
+node work/qa/redesign-browser.cjs exercises the real Three.js renderer and Web Audio in desktop Chrome:
+confirmation-dialog resume, equal buttons, HUD placement, four-track switching, Options volumes/mute, rainbow
+restoration, food/gate rendering, blur shaders, dog ejection, pausing and delayed respawn/defeat.
+Browser checks also render explosion audio offline to compare bass/loudness with the original effect, and
+launch the game directly from file:// at 1280x720. They use the host's bundled Playwright and Chrome,
+and can use a temporary cached r160 engine.
+Screenshots are saved in output/qa/redesign/. Historical QA scripts target their earlier revisions.
 
-DEPENDENCIES
-Three.js r160 classic CDN: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js
-The classic browser distribution was removed in r161+, so this page keeps r160.
-Three.js is MIT licensed: https://github.com/mrdoob/three.js/blob/r160/LICENSE
-Barlow Condensed, DM Sans and Space Mono from Google Fonts.
-Lilita One is bundled locally under the SIL Open Font License; see assets/fonts/OFL-LilitaOne.txt.
-
-VERIFICATION OF THIS REVISION
-All shipped scripts pass syntax checks. Classic script order, file paths and HTML identifiers checked.
-Rule simulation: first sixteen waves 221.65s at cruise; waves continue after sixteen and beyond ten minutes.
-Three lives, continuous wave checkpoints, checkpoint reload/respawn, corrupted/blocked storage and exhausted-life clearing verified.
-Overheat recovery verified across all 64 tier/fire/cooling combinations at 10/25/50ms timesteps.
-All cannon tiers, upgrade caps, pickup value ranges, recovery zones, seed repeatability and complete settings export verified.
-Menu/HUD integration checks cover launch, steering/firing, pause, hangar, checkpoint resume, new-run warning/cancel, tuning, wave jumps, seed and clipboard fallback.
-Seven score generators remain finite; temporary-track returns preserve arrangement position.
-Eight title frames were rendered from the shipped background and transparent atlases; loop timing, fixed anchors, tail proportions, reduced motion, hidden-screen pause, unchanged logo pixels and keyboard menu navigation passed.
-Pause menu browser checks cover desktop, phone and short landscape layouts, local display-font loading, keyboard focus and the shared defeat screen. Previews are saved under output/qa/.
-The gameplay integration checks use simulated resources. Full gameplay has not been played end to end in a browser.
-Difficulty, reticle readability, visual polish and audio quality still need a real player pass in a local desktop browser.
+DEPENDENCIES AND ASSETS
+Three.js r160 classic CDN: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js (MIT).
+Lilita One is bundled locally; its SIL Open Font License is in assets/fonts/OFL-LilitaOne.txt.
+The original hangar assets and 16 prerecorded character voices remain under assets/.
+Voice provenance, generation details and license notes are beside the audio clips.
