@@ -31,7 +31,7 @@ const window={...timers,AudioContext,localStorage:{getItem(){return null;},setIt
 const context=vm.createContext({window,console,Float32Array});
 for(const file of ['settings','music','voices','sound'])vm.runInContext(fs.readFileSync(`js/${file}.js`,'utf8'),context);
 const ns=window.Starhound,{music,race,tuning}=ns.settings;
-assert.equal(music.previewOrder.length,16);assert.equal(music.playback.playlist.length,8);
+assert.equal(music.previewOrder.length,16);assert.equal(music.playback.playlist.length,5);
 const original=require('../../js/music_export.js').music;
 for(const id of Object.keys(original.tracks))for(let step=0;step<256;step++){
  assert.equal(JSON.stringify(music.scaleNotes(id,step,music.tracks[id].bpm)),JSON.stringify(original.notes(id,step,original.tracks[id].bpm)));
@@ -46,11 +46,14 @@ const visited=new Set();for(let i=0;i<music.previewOrder.length;i++){const reque
 assert.equal(visited.size,16);
 state.mode='playing';state.speed=160;state.invincible=0;
 assert.equal(director.update(state).id,'game0');
-for(let i=1;i<=8;i++)assert.equal(director.nextGameplay(state).id,music.playback.playlist[i%8]);
-state.sector=4;assert.equal(director.update(state).id,'stardog0');
-state.invincible=7;assert.equal(director.update(state).id,'invincible');
-assert.equal(director.nextGameplay(state).id,'stardog1');assert.equal(director.update(state).id,'stardog1');
-state.invincible=0;director.update(state);state.invincible=7;assert.equal(director.update(state).id,'invincible');
+for(let i=1;i<=5;i++)assert.equal(director.nextGameplay(state).id,music.playback.playlist[i%5]);
+state.sector=4;assert.equal(director.update(state).id,'game0');
+state.invincible=7;assert.equal(director.update(state).id,'game0');
+assert.equal(director.nextGameplay(state).id,'stardog0');assert.equal(director.update(state).id,'stardog0');
+director.complete(10);assert.equal(director.update(state,10).id,null);
+assert.equal(director.update(state,10+music.playback.gapSeconds-music.lookAhead-.001).id,null);
+const next=director.update(state,10+music.playback.gapSeconds-music.lookAhead);
+assert.equal(next.id,'game1');assert.equal(next.startAt,10.6);
 let preview=director.nextPreview(state);state.sector=12;state.speed=320;
 assert.equal(director.update(state).id,preview.id);assert.equal(director.update(state).bpm,preview.bpm);
 state.mode='paused';state.resumeMode='playing';assert(!director.update(state).preview);
@@ -105,13 +108,32 @@ async function sourceParity(path){
  const bus=engine.music.bus;engine.setVolume('music',0);assert.equal(engine.musicOutput.gain.events.at(-1).value,0);assert.equal(engine.music.bus,bus);
  engine.setVolume('music',.5);engine.voiceActive=true;engine.applyMix();assert.equal(bus.input.gain.events.at(-1).value,bus.gain*ns.settings.voices.musicDuck);
  s.mode='playing';engine.beginFlight(s);assert.equal(engine.track,'game0');
- for(let i=0;i<4;i++)engine.nextTrack(s);assert.equal(engine.track,'stardog0');
+ engine.nextTrack(s);assert.equal(engine.track,'stardog0');
  for(let i=0;i<16;i++){await engine.previewNext(s);engine.context.currentTime+=.25;engine.music.schedule();assert(engine.step<16);}
  s.mode='paused';s.resumeMode='playing';await engine.pause();engine.update(s);assert.equal(engine.context.state,'suspended');assert(engine.music.paused);
  await engine.previewNext(s);assert.equal(engine.context.state,'running');assert(engine.paused);assert(!engine.music.paused);
  s.mode='playing';await engine.resume();engine.update(s);assert(!engine.musicStatus.preview);
  s.mode='crashing';engine.crash();engine.update(s);assert.equal(engine.track,null);assert.equal(engine.musicOutput.gain.events.at(-1).value,0);
  s.mode='defeat';engine.update(s);assert.equal(engine.track,'defeat');
+ // Run every complete arrangement once. Real audio time controls transitions; sectors and
+ // invincibility cannot advance or replace gameplay music. Ambience gates also fade to zero.
+ s.mode='playing';s.invincible=7;engine.beginFlight(s);
+ for(const expected of [...music.playback.playlist,music.playback.playlist[0]]){
+  assert.equal(engine.track,expected);assert.equal(engine.step,0);
+  const profile=music.tracks[expected],length=profile.lengthSteps??profile.stepsPerMeasure*profile.measures;
+  while(engine.step<length){engine.context.currentTime=engine.music.nextTime;engine.music.schedule();}
+  const bus=engine.music.bus,end=engine.music.arrangementEnd;
+  assert.equal(engine.step,length);assert(bus.envelope.gain.events.some(e=>e.kind==='linear'&&e.value===0&&e.time===end));
+  engine.context.currentTime=end;engine.update(s);assert.equal(engine.track,null);assert(bus.nodes.every(n=>n.disconnected));
+  engine.context.currentTime=end+music.playback.gapSeconds-music.lookAhead-.001;engine.update(s);assert.equal(engine.track,null);
+  engine.context.currentTime=end+music.playback.gapSeconds-music.lookAhead;engine.update(s);
+  assert.equal(engine.music.nextTime,end+music.playback.gapSeconds);assert.equal(engine.step,0);
+ }
+ // Crashing just after the final step was queued must not leave the restored track stuck.
+ engine.beginFlight(s);const length=music.tracks.game0.lengthSteps;
+ while(engine.step<length){engine.context.currentTime=engine.music.nextTime;engine.music.schedule();}
+ s.mode='crashing';engine.crash();engine.update(s);s.mode='playing';engine.update(s);engine.update(s);
+ engine.context.currentTime+=music.playback.gapSeconds;engine.update(s);assert.equal(engine.track,'stardog0');
  engine.dispose();assert.equal(callbacks.size,0);assert.equal(engine.music.retiring.size,0);
- console.log('Music checks passed: original score parity, 16 previews, eight-track selection, preview isolation/tempo, existing roles, complete export, shared context/scheduler, mute/ducking, pause audition, crash silence and cleanup.');
+ console.log('Music checks passed: original score parity, 16 previews, five-track selection, preview isolation/tempo, existing roles, complete export, shared context/scheduler, mute/ducking, pause audition, crash silence and cleanup.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

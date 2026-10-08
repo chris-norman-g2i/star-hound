@@ -1,6 +1,6 @@
 (function (namespace) {
 'use strict';
-const { music, sfx, voices } = namespace.settings;
+const { music, sfx, voices, speedRings } = namespace.settings;
 
 /** Web Audio resource ownership and sample-accurate scheduling.
  * Composition, note frequencies, envelopes and signal tuning come from settings.
@@ -43,7 +43,7 @@ class SoundEngine {
     const length=music.samples(music.reverbSeconds,ctx.sampleRate);
     const impulse=ctx.createBuffer(2,length,ctx.sampleRate);
     for(const channel of [0,1])impulse.copyToChannel(music.impulse(length,ctx.sampleRate),channel);
-    this.musicSpace=this.createSpace(this.musicOutput,impulse,true);
+    this.musicImpulse=impulse;
     this.effectsSpace=this.createSpace(this.fxBus,impulse);
     const noiseLength = music.samples(sfx.noiseSeconds,ctx.sampleRate);
     this.noise = ctx.createBuffer(1,noiseLength,ctx.sampleRate);
@@ -56,18 +56,22 @@ class SoundEngine {
     this.engineTone.connect(this.engineFilter);this.engineNoise.connect(this.engineWind);this.engineWind.connect(this.engineFilter);
     this.engineFilter.connect(this.engineAmp);this.engineAmp.connect(this.fxBus);
     this.engineTone.start();this.engineNoise.start();
-    this.music=new namespace.MusicTransport(ctx,{ambient:this.musicSpace,direct:this.musicOutput},this.noise);
+    this.music=new namespace.MusicTransport(ctx,{
+      ambient:(envelope,nodes)=>{envelope.connect(this.musicOutput);return this.createSpace(envelope,this.musicImpulse,true,nodes);},
+      direct:this.musicOutput},this.noise);
   }
-  createSpace(output,impulse,echo=false){
+  createSpace(output,impulse,echo=false,nodes=[]){
     const ctx=this.context,input=ctx.createGain();input.connect(output);
     const reverb=ctx.createConvolver();reverb.buffer=impulse;
     const wet=ctx.createGain();wet.gain.value=music.reverbGain;
     input.connect(reverb);reverb.connect(wet);wet.connect(output);
+    nodes.push(input,reverb,wet);
     if(echo){
       const delay=ctx.createDelay();delay.delayTime.value=music.delaySeconds;
       const feedback=ctx.createGain();feedback.gain.value=music.delayFeedback;
       const delayWet=ctx.createGain();delayWet.gain.value=music.delayGain;
       input.connect(delay);delay.connect(feedback);feedback.connect(delay);delay.connect(delayWet);delayWet.connect(output);
+      nodes.push(delay,feedback,delayWet);
     }
     return input;
   }
@@ -116,6 +120,7 @@ class SoundEngine {
   crash(){
     this.clearVoices();
     if(this.context){
+      if(this.music?.once&&this.music.finished)this.director.complete(this.music.arrangementEnd);
       const gain=this.musicOutput.gain,time=this.context.currentTime;
       gain.cancelScheduledValues(time);gain.setValueAtTime(0,time);
       this.music.select({id:null,bpm:null,revision:this.director.revision});
@@ -123,9 +128,16 @@ class SoundEngine {
     this.play('crashExplosion');
   }
   voice(event,state) {this.voices.event(event,state);}
+  ring(chain,x){
+    if(!this.enabled||!this.context||this.paused)return;
+    const c=speedRings.sound,frequency=c.baseFrequency*c.octaveRatio**((chain-1)*c.semitonesPerHit/c.semitonesPerOctave);
+    this.tone({from:frequency,to:frequency*c.endRatio,duration:c.duration,gain:c.gain,wave:c.wave},this.context.currentTime,x);
+  }
   clearVoices() {this.voices.clear();}
   update(state,dt=.025) {
-    this.lastState=state;this.director.update(state);
+    this.lastState=state;
+    if(state.mode==='playing'&&this.director.request?.once&&this.music?.finished)this.director.complete(this.music.arrangementEnd);
+    this.director.update(state,this.context?.currentTime);
     this.voices.update(state,dt);
     if(!this.context) return;
     const engine=sfx.engineState(state),time=this.context.currentTime;

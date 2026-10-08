@@ -1,0 +1,4 @@
+Generation mode: built-in image_gen edit with transparent background
+Source: output/imagegen/star-hound-bone-chaser-title-concept-v2-husky.png
+
+Use case: background-extraction. Extract ONLY the existing STAR HOUND logo with its BONE CHASER subtitle from the top-left of the supplied title-screen image. Preserve the original logo lettering, proportions, ivory/icy-blue shading, dark navy outline, orange star and orange accent strokes. No redesign or extra lettering. Remove ALL hangar, sky, planets, dog, ship and menu. Output the complete logo and subtitle alone on a genuinely transparent background, as a tightly framed wide horizontal asset with a small consistent transparent margin. Logo text exactly STAR HOUND and BONE CHASER. Sharp clean edges, no shadow beyond the original logo outline. Do not place checkerboard graphics in the image: actual alpha transparency.

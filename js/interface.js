@@ -3,8 +3,17 @@
 const {ui,math,race}=namespace.settings;
 class FlightInterface {
   constructor(){
-    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','sector','sector-name','wave','wave-dots','hull-fill','hull-text','lives-text','speed','speed-fill','effect-label','heat-fill','cannon-name','weapon-status','upgrade-status','announcement','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','checkpoint-note','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','track-name','music-debug','music-debug-name','music-debug-status','tuning-dialog'])this.nodes[id]=document.getElementById(id);
+    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','sector','sector-name','wave','wave-dots','hull-fill','hull-text','lives-text','speed','speed-fill','effect-label','heat-fill','cannon-name','weapon-status','upgrade-status','announcement','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','checkpoint-note','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','track-name','music-debug','music-debug-name','music-debug-status','tuning-dialog','options-button','options-dialog','close-options'])this.nodes[id]=document.getElementById(id);
+    for(const id of ['pause-menu','flight-results','results-home'])this.nodes[id]=document.getElementById(id);
     for(let i=0;i<race.wavesPerSector;i++)this.nodes['wave-dots'].append(document.createElement('i'));
+    // Native dialog backdrops target the dialog itself. Check coordinates so padding,
+    // form controls, and drags that started inside never count as outside clicks.
+    for(const dialog of document.querySelectorAll('dialog')){
+      let pressedOutside=false;
+      const outside=event=>{const r=dialog.getBoundingClientRect();return event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom;};
+      dialog.addEventListener('pointerdown',event=>{pressedOutside=event.target===dialog&&outside(event);});
+      dialog.addEventListener('click',event=>{if(pressedOutside&&event.target===dialog&&outside(event))dialog.close();pressedOutside=false;});
+    }
     this.lastMode=null;this.lastCheckpoint='';this.hangar=new namespace.HangarTitle();
   }
   audio(sound){
@@ -53,21 +62,30 @@ class FlightInterface {
   mode(s){
     const n=this.nodes;document.body.classList.toggle('playing',s.mode!=='title');
     n['title-screen'].classList.toggle('hidden',s.mode!=='title');n.hud.classList.toggle('hidden',s.mode==='title');
-    n.overlay.classList.toggle('hidden',s.mode==='playing'||s.mode==='crashing'||s.mode==='title');
-    if(s.mode==='title')n.launch.focus();
-    if(s.mode==='paused'){n['overlay-eyebrow'].textContent='FLIGHT PAUSED';n['overlay-title'].innerHTML='CATCH YOUR<br> BREATH.';n['overlay-copy'].textContent=`${s.lives} lives left · Wave ${s.checkpointWave} checkpoint. Return to the hangar to continue from there. A new flight clears this checkpoint.`;n.resume.classList.remove('hidden');n.resume.focus();}
-    if(s.mode==='defeat'){n['overlay-eyebrow'].textContent='ALL LIVES LOST';n['overlay-title'].innerHTML='EVERY DOG HAS<br> ANOTHER DAY.';n['overlay-copy'].textContent=`You reached wave ${s.bestWave}. Your run has ended and its checkpoint is cleared. Try another seed, collect repairs, and let your cannon cool.`;n.resume.classList.add('hidden');n.restart.focus();}
-    if(s.mode==='paused'||s.mode==='defeat')n['run-stats'].innerHTML=`<span><strong>${ui.time(s.elapsed)}</strong><small>FLIGHT TIME</small></span><span><strong>${s.kills}</strong><small>TAKEDOWNS</small></span><span><strong>${ui.finalScore(s)}</strong><small>POINTS</small></span>`;
+    const menu=ui.menus[s.mode];
+    n.overlay.classList.toggle('hidden',!menu?.panel);n.overlay.dataset.mode=s.mode;
+    n['pause-button'].disabled=Boolean(menu?.panel);
+    for(const config of Object.values(ui.menus))if(config.panel)n[config.panel].classList.toggle('hidden',config!==menu);
+    if(menu?.panel)n.overlay.setAttribute('aria-label',menu.label);
+    if(s.mode==='defeat'){
+      n['overlay-copy'].textContent=`You reached wave ${s.bestWave}. Your run has ended and its checkpoint is cleared. Try another seed, collect repairs, and let your cannon cool.`;
+      n['run-stats'].innerHTML=`<span><strong>${ui.time(s.elapsed)}</strong><small>FLIGHT TIME</small></span><span><strong>${s.kills}</strong><small>TAKEDOWNS</small></span><span><strong>${ui.finalScore(s)}</strong><small>POINTS</small></span>`;
+    }
+    if(menu)n[menu.actions[ui.menuKeys.firstIndex]].focus();
   }
-  navigateTitle(event,s){
-    if(s.mode!=='title'||!['ArrowUp','ArrowDown'].includes(event.code))return false;
-    const choices=['launch','checkpoint-resume','flight-manual','tune-button'].map(id=>this.nodes[id]).filter(node=>!node.disabled);
-    const index=choices.indexOf(document.activeElement);choices[ui.titleMenuIndex(index,choices.length,event.code)].focus();event.preventDefault();return true;
+  navigateMenu(event,s){
+    const menu=ui.menus[s.mode],keys=ui.menuKeys;
+    if(!menu)return false;
+    const isTab=event.code===keys.tab&&menu.trapFocus;
+    if(!isTab&&event.code!==keys.previous&&event.code!==keys.next)return false;
+    const choices=menu.actions.map(id=>this.nodes[id]).filter(node=>!node.disabled);
+    const direction=isTab?(event.shiftKey?keys.previous:keys.next):event.code;
+    const index=choices.indexOf(document.activeElement);choices[ui.menuIndex(index,choices.length,direction)].focus();event.preventDefault();return true;
   }
   showManual(){this.nodes.manual.showModal();}
   hideManual(){this.nodes.manual.close();}
   isManualOpen(){return this.nodes.manual.open;}
-  isDialogOpen(){return this.nodes.manual.open||this.nodes['new-run-dialog'].open||this.nodes['tuning-dialog']?.open;}
+  isDialogOpen(){return this.nodes.manual.open||this.nodes['new-run-dialog'].open||this.nodes['tuning-dialog'].open||this.nodes['options-dialog'].open;}
 }
 namespace.FlightInterface=FlightInterface;
 })(window.Starhound);

@@ -31,7 +31,6 @@ class WaveCheckpoints {
     restored.notice=`LIFE LOST · CHECKPOINT ${restored.wave} · ${restored.lives} LIVES`;
     this.write(checkpoint.capture(restored));return restored;
   }
-  jump(s,wave,systems){systems.reset();race.jump(s,wave);s.checkpointWave=s.wave;this.begin(s);}
 }
 namespace.WaveCheckpoints=WaveCheckpoints;
 })(window.Starhound);

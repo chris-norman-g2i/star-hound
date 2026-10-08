@@ -2,12 +2,12 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const root=require('node:path').resolve(__dirname,'../..');process.chdir(root);
 function context(folder='js',storage={getItem(){return null},setItem(){},removeItem(){}}){
  const ctx=vm.createContext({window:{localStorage:storage},console});
- for(const name of ['settings','systems','checkpoints'])vm.runInContext(fs.readFileSync(`${folder}/${name}.js`,'utf8'),ctx);
+ for(const name of (folder==='js'?['settings','route','systems','checkpoints']:['settings','systems','checkpoints']))vm.runInContext(fs.readFileSync(`${folder}/${name}.js`,'utf8'),ctx);
  return ctx.window.Starhound;
 }
 const ns=context(),cfg=ns.settings,{race,propulsion,crash,weapon,pickups,encounters,checkpoint,tuning,music,scenery,tunnel,speedEffects}=cfg;
 const old=context('archives/starhound-before-redesign-2026-10-07/js').settings;
-const events=[],scene={clear(){},burst(){},celebrate(){events.push('checkpoint')},startCrash(){events.push('crash')}},sound={play(){},voice(){},crash(){}};
+const events=[],scene={clear(){},burst(){},celebrate(){events.push('checkpoint')},startCrash(){events.push('crash')}},sound={play(){},voice(){},crash(){},ring(){}};
 const sys=new ns.FlightSystems(scene,sound),store=new ns.WaveCheckpoints();
 const close=(a,b)=>assert(Math.abs(a-b)<1e-8,`${a} != ${b}`);
 // All compounded speed bonuses lose exactly 33%, including during invincibility.

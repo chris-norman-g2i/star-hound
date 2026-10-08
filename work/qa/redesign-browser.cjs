@@ -75,8 +75,8 @@ const autoplayArgs=allowAutoplay?['--autoplay-policy=no-user-gesture-required']:
   const track=await page.evaluate(()=>qa.SoundEngine.track);await page.keyboard.press('m');
   await page.waitForFunction(old=>qa.SoundEngine.track!==old,track);assert.equal(await page.evaluate(()=>qa.SoundEngine.gameplayIndex),1);
   assert(await page.evaluate(()=>qa.SoundEngine.step<16));
-  for(const expected of [2,3,4,5,6,7,0]){await page.keyboard.press('m');assert.equal(await page.evaluate(()=>qa.SoundEngine.gameplayIndex),expected);}
-  await page.evaluate(()=>{Starhound.settings.race.jump(qa.state,5);qa.WaveCheckpoints.begin(qa.state);});await page.waitForFunction(()=>qa.SoundEngine.gameplayIndex===1);
+  for(const expected of [2,3,4,0]){await page.keyboard.press('m');assert.equal(await page.evaluate(()=>qa.SoundEngine.gameplayIndex),expected);}
+  await page.evaluate(()=>{Starhound.settings.race.jump(qa.state,5);qa.WaveCheckpoints.begin(qa.state);});await page.waitForFunction(()=>qa.SoundEngine.gameplayIndex===0);
   await page.evaluate(()=>{Starhound.settings.race.jump(qa.state,1);qa.WaveCheckpoints.begin(qa.state);});await page.waitForFunction(()=>qa.SoundEngine.gameplayIndex===0);
   await page.keyboard.press('p');await page.waitForFunction(()=>qa.SoundEngine.musicStatus.preview);
   const fixedPreview=await page.evaluate(()=>({id:qa.SoundEngine.track,bpm:qa.SoundEngine.music.bpm}));
@@ -85,7 +85,7 @@ const autoplayArgs=allowAutoplay?['--autoplay-policy=no-user-gesture-required']:
   assert.deepEqual(await page.evaluate(()=>({id:qa.SoundEngine.track,bpm:qa.SoundEngine.music.bpm})),fixedPreview);
   await page.screenshot({path:path.join(root,'output/qa/music/gameplay-preview.png')});
   await page.keyboard.press('Escape');await page.waitForFunction(()=>qa.renderedMode==='paused');
-  assert(!await page.evaluate(()=>qa.SoundEngine.musicStatus.preview));assert.equal(await page.evaluate(()=>qa.SoundEngine.track),'invincible');
+  assert(!await page.evaluate(()=>qa.SoundEngine.musicStatus.preview));assert.equal(await page.evaluate(()=>qa.SoundEngine.track),'game0');
   assert.equal(await page.evaluate(()=>qa.SoundEngine.context.state),'suspended');
   await page.keyboard.press('Escape');await page.waitForFunction(()=>qa.renderedMode==='playing');
   await page.evaluate(()=>{Starhound.settings.race.jump(qa.state,1);qa.WaveCheckpoints.begin(qa.state);qa.state.invincible=0;});
@@ -98,14 +98,14 @@ const autoplayArgs=allowAutoplay?['--autoplay-policy=no-user-gesture-required']:
   await page.screenshot({path:path.join(root,'output/qa/music/start-fresh.png')});
   await page.click('#resume-checkpoint-dialog');await page.waitForFunction(()=>qa.renderedMode==='playing');assert(await page.locator('#new-run-dialog').isHidden());
   // Options channel controls don't restart the wave; M never mutes.
-  await page.keyboard.press('F2');await page.waitForFunction(()=>qa.renderedMode==='paused');
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>qa.renderedMode==='paused');await page.click('#home');await page.waitForFunction(()=>qa.renderedMode==='title');await page.click('#options-button');
   for(const [channel,value] of [['music','.6'],['effects','.8'],['voice','.4']]){
    await page.locator('#'+channel+'-volume').evaluate((n,v)=>{n.value=v;n.dispatchEvent(new Event('input',{bubbles:true}));},value);
    assert.equal(await page.evaluate(c=>qa.SoundEngine.volumes[c],channel),Number(value));
   }
   await page.click('#audio-button');assert(await page.evaluate(()=>qa.SoundEngine.muted));await page.click('#audio-button');assert(!await page.evaluate(()=>qa.SoundEngine.muted));
   await page.screenshot({path:path.join(root,'output/qa/music/options.png')});
-  await page.keyboard.press('F2');assert(await page.locator('#tuning-dialog').isHidden());await page.keyboard.press('Escape');
+  await page.click('#close-options');assert(await page.locator('#options-dialog').isHidden());await page.click('#checkpoint-resume');
   await page.waitForFunction(()=>qa.renderedMode==='playing');
   // Real WebGL rendering: rainbow restores materials, shield stays respawn-only, checkpoint celebration.
   await page.evaluate(()=>{
@@ -197,6 +197,6 @@ const autoplayArgs=allowAutoplay?['--autoplay-policy=no-user-gesture-required']:
   await local.screenshot({path:path.join(root,'output/qa/music/local-desktop-720.png')});
   await local.close();
   assert.equal(errors.length,0,errors.join('\n'));
-  console.log('Desktop browser checks passed: full Three.js/WebGL/audio, new-flight dialog resume, stacked equal buttons, HUD, Options mix, title startup/autoplay fallback, all 16 P previews, eight M tracks, fixed preview tempo, one-shot fanfare, rainbow reset, seven foods, checkpoint gate/fireworks, blur shaders, timed dog ejection, pause and all lives.');
+  console.log('Desktop browser checks passed: full Three.js/WebGL/audio, new-flight dialog resume, stacked equal buttons, HUD, Options mix, title startup/autoplay fallback, all 16 P previews, five M tracks, fixed preview tempo, one-shot fanfare, rainbow reset, seven foods, checkpoint gate/fireworks, blur shaders, timed dog ejection, pause and all lives.');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

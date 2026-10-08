@@ -5,40 +5,39 @@ const {music,sfx}=namespace.settings;
 /** Selection policy has no audio resources or DOM dependencies. */
 class MusicDirector {
   constructor(){
-    this.gameplayIndex=0;this.lastSector=null;this.skipPowerupMusic=false;
-    this.previewId=null;this.mode=null;this.revision=0;this.request=null;
+    this.gameplayIndex=0;this.previewId=null;this.mode=null;this.revision=0;this.request=null;this.gapUntil=null;this.startAt=null;
   }
-  update(state){
+  update(state,audioTime=0){
     if(music.debug.resetOnModeChange&&this.mode!==state.mode)this.previewId=null;
     this.mode=state.mode;
-    if(state.mode==='playing'){
-      const delta=this.lastSector===null?state.sector-this.gameplayIndex:state.sector-this.lastSector;
-      this.gameplayIndex=music.wrapIndex(this.gameplayIndex+delta,music.playback.playlist.length);
-      this.lastSector=state.sector;
-    }else if(state.mode==='title'){this.lastSector=null;this.gameplayIndex=0;}
-    if(state.invincible<=0)this.skipPowerupMusic=false;
+    if(state.mode==='title'){this.gameplayIndex=0;this.gapUntil=null;this.startAt=null;}
+    if(state.mode==='playing'&&this.gapUntil!==null&&audioTime+music.lookAhead>=this.gapUntil){
+      this.gameplayIndex=music.wrapIndex(this.gameplayIndex+1,music.playback.playlist.length);
+      this.startAt=this.gapUntil;this.gapUntil=null;this.revision++;
+    }
     const effective=state.mode==='paused'?{...state,mode:state.resumeMode||music.playback.pausedFallback}:state;
-    const automatic=music.trackFor(this.skipPowerupMusic?{...effective,invincible:0}:effective,this.gameplayIndex);
-    const id=automatic===null?null:this.previewId??automatic;
+    const automatic=music.trackFor(effective,this.gameplayIndex);
+    const id=automatic===null?null:this.previewId??(this.gapUntil!==null&&effective.mode==='playing'?null:automatic);
     const bpm=id?(this.previewId&&!music.debug.tempoFollowsSpeed?music.tracks[id].bpm??music.oneShotBpm:music.tempo(id,state)):null;
-    this.request={id,bpm,revision:this.revision,preview:this.previewId!==null};
+    this.request={id,bpm,revision:this.revision,preview:this.previewId!==null,
+      startAt:this.previewId===null?this.startAt:null,once:effective.mode==='playing'&&this.previewId===null&&id!==null};
     return this.request;
   }
   beginFlight(state){
-    this.previewId=null;this.gameplayIndex=music.wrapIndex(state.sector,music.playback.playlist.length);
-    this.lastSector=state.sector;this.skipPowerupMusic=false;this.mode=state.mode;this.revision++;
+    this.previewId=null;this.gameplayIndex=0;this.gapUntil=null;this.startAt=null;this.mode=state.mode;this.revision++;
     return this.update(state);
   }
+  complete(endTime){this.gapUntil=endTime+music.playback.gapSeconds;}
   nextGameplay(state){
     if(state.mode!=='playing')return this.update(state);
-    this.previewId=null;this.gameplayIndex=music.wrapIndex(this.gameplayIndex+1,music.playback.playlist.length);
-    this.lastSector=state.sector;this.skipPowerupMusic=state.invincible>0;this.revision++;
+    this.previewId=null;this.gapUntil=null;this.startAt=null;
+    this.gameplayIndex=music.wrapIndex(this.gameplayIndex+1,music.playback.playlist.length);this.revision++;
     return this.update(state);
   }
   nextPreview(state){
     const current=this.update(state).id;
     const index=music.wrapIndex(music.previewOrder.indexOf(current)+1,music.previewOrder.length);
-    this.previewId=music.previewOrder[index];this.revision++;
+    this.previewId=music.previewOrder[index];this.startAt=null;this.gapUntil=null;this.revision++;
     return this.update(state);
   }
 }
@@ -52,27 +51,35 @@ class MusicTransport {
     this.paused=false;this.duck=1;this.endedAt=0;
     this.timer=window.setInterval(()=>this.schedule(),music.schedulerMs);
   }
-  select({id,bpm,revision}){
+  select({id,bpm,revision,once=false,startAt=null}){
     if(bpm)this.bpm=bpm;
     const restart=revision!==this.revision;this.revision=revision;
-    if(id===this.track&&!restart)return;
+    if(id===this.track&&!restart&&once===this.once)return;
     if(this.track)this.positions[this.track]=this.step;
     this.retire(restart||id===null);
-    this.track=id;
+    this.track=id;this.once=once;this.arrangementEnd=null;
     if(!id)return;
     const profile=music.tracks[id],mix=music.mixes[profile.mix],ctx=this.context;
     const input=ctx.createGain(),nodes=[input];
     input.gain.value=restart?mix.gain*this.duck:0;
-    let output=this.outputs[mix.output];
+    const envelope=ctx.createGain();nodes.push(envelope);
+    let output=envelope;
+    if(typeof this.outputs[mix.output]==='function')output=this.outputs[mix.output](envelope,nodes);
+    else envelope.connect(this.outputs[mix.output]);
     if(mix.compressor){
       const compressor=ctx.createDynamicsCompressor();
       for(const [key,value] of Object.entries(mix.compressor))compressor[key].value=value;
       compressor.connect(output);output=compressor;nodes.push(compressor);
     }
     input.connect(output);input.gain.setTargetAtTime(mix.gain*this.duck,ctx.currentTime,restart?music.immediateFade:music.fade);
-    this.bus={input,nodes,sources:new Set(),echoes:new Map(),gain:mix.gain};
-    this.step=restart||profile.loop===false?music.initialStep:music.transitionStep(id,this.step,this.positions);
-    this.nextTime=ctx.currentTime+music.startOffset;this.endedAt=ctx.currentTime;
+    this.bus={input,envelope,nodes,sources:new Set(),echoes:new Map(),gain:mix.gain};
+    this.step=restart||profile.loop===false?music.initialStep:once?(this.positions[id]??music.initialStep):music.transitionStep(id,this.step,this.positions);
+    this.nextTime=startAt===null?ctx.currentTime+music.startOffset:Math.max(ctx.currentTime,startAt);this.endedAt=ctx.currentTime;
+    envelope.gain.setValueAtTime(once?0:1,ctx.currentTime);
+    if(once)envelope.gain.setValueAtTime(0,this.nextTime);
+    if(once)envelope.gain.linearRampToValueAtTime(1,this.nextTime+music.playback.fadeSeconds);
+    const length=profile.lengthSteps??profile.stepsPerMeasure*profile.measures;
+    if(once&&this.step>=length)this.arrangementEnd=ctx.currentTime;
   }
   setDuck(value){
     if(value===this.duck)return;this.duck=value;
@@ -94,11 +101,23 @@ class MusicTransport {
     const ctx=this.context;
     if(ctx.state!=='running'||this.paused||!this.track)return;
     const profile=music.tracks[this.track];
+    const length=this.once?(profile.lengthSteps??profile.stepsPerMeasure*profile.measures):profile.loop===false?profile.lengthSteps:Infinity;
+    if(this.step>=length)return;
     if(this.nextTime<ctx.currentTime)this.nextTime=ctx.currentTime+music.lateOffset;
     while(this.nextTime<ctx.currentTime+music.lookAhead){
-      if(profile.loop===false&&this.step>=profile.lengthSteps)return;
+      if(this.step>=length)return;
+      const pace=music.stepSeconds(this.bpm),remaining=(length-this.step)*pace;
+      if(this.once&&remaining<=music.playback.fadeSeconds+pace){
+        const end=this.nextTime+remaining,fadeStart=end-music.playback.fadeSeconds,gain=this.bus.envelope.gain;
+        // Schedule ahead of the audio clock. Tempo changes update the remaining envelope
+        // without letting a later note or ambience tail escape the terminal fade.
+        gain.cancelScheduledValues(ctx.currentTime);
+        gain.setValueAtTime(Math.max(0,Math.min(1,(end-ctx.currentTime)/music.playback.fadeSeconds)),Math.max(ctx.currentTime,fadeStart));
+        gain.linearRampToValueAtTime(0,end);
+      }
       for(const event of music.events(this.track,this.step,this.bpm))this.render(event,this.nextTime+event.offset,this.bus);
-      this.nextTime+=music.stepSeconds(this.bpm);this.step++;
+      this.nextTime+=pace;this.step++;
+      if(this.once&&this.step===length)this.arrangementEnd=this.nextTime;
     }
   }
   driveCurve(amount){
@@ -156,8 +175,8 @@ class MusicTransport {
     }
     this.endedAt=Math.max(this.endedAt,end+(v.stopTail??sfx.gain.tail));
   }
-  reanchor(){this.nextTime=this.context.currentTime+music.startOffset;}
-  get finished(){const t=music.tracks[this.track];return t?.loop===false&&this.step>=t.lengthSteps&&this.context.currentTime>=this.endedAt;}
+  reanchor(){if(this.arrangementEnd===null)this.nextTime=Math.max(this.nextTime,this.context.currentTime+music.startOffset);}
+  get finished(){if(this.once)return this.arrangementEnd!==null&&this.context.currentTime>=this.arrangementEnd;const t=music.tracks[this.track];return t?.loop===false&&this.step>=t.lengthSteps&&this.context.currentTime>=this.endedAt;}
   dispose(){
     window.clearInterval(this.timer);this.retire(true);
     for(const [bus,timer] of this.retiring){window.clearTimeout(timer);this.release(bus);}

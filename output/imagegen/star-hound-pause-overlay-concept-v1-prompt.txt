@@ -1,0 +1,18 @@
+Generation mode: built-in image_gen edit/composite
+Background: output/qa/redesign/checkpoint-gate.png
+Logo reference: output/imagegen/star-hound-bone-chaser-title-concept-v2-husky.png
+Deliverable: static pause overlay concept only. No game code changes.
+
+Use case: compositing
+Asset type: one static revised pause-menu concept, shown as an overlay on a real Star Hound gameplay screenshot.
+Input images: Image 1 is the actual gameplay screenshot and is the BACKGROUND / EDIT TARGET. Image 2 is the title-screen art, used ONLY to extract and faithfully reproduce its exact STAR HOUND / BONE CHASER logo design and menu visual style. Do not transfer the hangar scene or standing hero from Image 2.
+Primary request: show a compact centered pause menu FLOATING OVER THE EXISTING PLAY SESSION, with gameplay still clearly visible around it. This is a design image only; no code changes.
+Background invariants: preserve Image 1's game scene, camera, mint low-poly ship flying through space, dog seen from behind, checkpoint ring, rocks, tunnel linework and peripheral HUD. Maintain the screenshot's original 1440x900 framing. Only modestly dim the background if needed, at most 10–15%; no opaque full-screen backdrop, no replacement scenery, no full-screen blur or blocking screen.
+Menu composition: a compact translucent dark-navy floating panel centered horizontally and vertically in the gameplay viewport, occupying approximately 40% of the screen width and 40–45% of its height. A restrained icy-blue thin outline with chamfered corners. The menu should be visually light and clearly an overlay, with most gameplay uncovered. No giant panel, no full-height panel, no illustrated background inside the panel.
+At the TOP CENTER of the pause menu put the exact original TITLE-PAGE LOGO from Image 2: angular italic STAR HOUND lettering, ivory/icy-blue face with deep navy outline, orange four-point star and accent strokes, with BONE CHASER in small spaced capitals directly underneath. Scale the logo down proportionately to comfortably fit the menu. This logo is the only permitted non-button lettering.
+Below the logo: EXACTLY TWO buttons, stacked VERTICALLY, BOTH horizontally centered and with their text precisely CENTER-ALIGNED.
+Top button: "RESUME FLIGHT". This is the prominent larger primary button, broad and tall, warm orange with a restrained cream edge, thick playful readable dark-navy lettering, subtly angular sci-fi shape matching the title-page style.
+Second button: "RETURN TO HANGAR". Smaller secondary button, centered beneath Resume Flight with a tidy modest vertical gap, cool-blue outline and translucent dark-navy fill, thick readable ivory lettering. The buttons may differ in size but share the same horizontal center.
+Remove entirely: NEW FLIGHT / NEW RUN button, FLIGHT PAUSED label, CATCH YOUR BREATH headline, any flight stats, checkpoint/lives explanation, hints, captions, footer, ESC badge, slogans, close button, other buttons, dog/ship portraits inside the menu, or any other menu text.
+ONLY pause-menu text allowed: logo "STAR HOUND" and "BONE CHASER", and button labels "RESUME FLIGHT" and "RETURN TO HANGAR". Existing HUD text belongs to the background gameplay screenshot and may stay as supplied; do not add any HUD or menu text.
+Constraints: menu is compact, fully centered, lightly translucent, no full blocking screen. Preserve original gameplay rather than inventing a new session. Produce ONE polished static image, no animation or contact sheet.

@@ -10,7 +10,7 @@ class Audio {
 }
 function setup(AudioType=Audio){
   const window={Audio:AudioType},ctx=vm.createContext({window,console,Math,JSON,Number,Float32Array,Uint8Array,Promise});
-  for(const f of ['settings','voices','systems','checkpoints'])vm.runInContext(fs.readFileSync('js/'+f+'.js','utf8'),ctx);
+  for(const f of ['settings','route','voices','systems','checkpoints'])vm.runInContext(fs.readFileSync('js/'+f+'.js','utf8'),ctx);
   return window.Starhound;
 }
 const ns=setup(),{race,voices,checkpoint,tuning}=ns.settings,ducks=[],engine=new ns.VoiceEngine(active=>ducks.push(active));

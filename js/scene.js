@@ -1,10 +1,10 @@
 (function (namespace) {
 'use strict';
 const THREE = namespace.THREE;
-const { assets, gfx, tunnel, weapon, pickups, flight, math, race, renderMath } = namespace.settings;
+const { assets, gfx, tunnel, weapon, pickups, flight, math, tuning, renderMath } = namespace.settings;
 
 class FlightScene {
-  constructor(canvas) {
+  constructor(canvas,route) {
     this.renderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
     this.renderer.setPixelRatio(gfx.ratio(window.devicePixelRatio));
     this.renderer.setClearColor(gfx.clear);this.renderer.outputColorSpace=THREE.SRGBColorSpace;
@@ -16,13 +16,13 @@ class FlightScene {
     const rim=new THREE.DirectionalLight(renderMath.rimColor,gfx.lighting.rim);rim.position.fromArray(gfx.lighting.rimPosition);this.scene.add(rim);
     this.geometries=new Map();this.materials=new Map();this.entities=new Map();this.shipMaterials=new Map();this.crashPresentation=null;
     this.ship=this.makeShip();this.scene.add(this.ship);
-    this.makeTunnel();this.makeStars();this.scene.add(this.camera);
+    this.route=route||new namespace.RoutePlan();this.makeStars();this.scene.add(this.camera);
     this.particles=new namespace.FlightParticles(this.scene);
-    this.environment=new namespace.FlightEnvironment(this.scene);
+    this.environment=new namespace.FlightEnvironment(this.scene,this.route);
     this.speedEffects=new namespace.FlightSpeedEffects(this.renderer,this.camera);
     this.isolateShipMaterials(this.ship);
     this.reticle=document.getElementById('reticle');this.aimMarkers=[];this.aimPoint=new THREE.Vector3();
-    this.tier=-1;this.sector=-1;this.frame=new THREE.Object3D();this.color=new THREE.Color();
+    this.tier=-1;
     this.resize();
   }
   geometry(kind) {
@@ -72,12 +72,6 @@ class FlightScene {
     for(const x of weapon.barrels[tier]){const marker=document.createElement('span');marker.textContent='+';this.reticle.append(marker);this.aimMarkers.push(marker);}
     for(const x of weapon.barrels[tier]) {const barrel=new THREE.Mesh(this.geometry('box'),this.material('dark'));barrel.position.fromArray(renderMath.barrelPosition(x));barrel.scale.fromArray(assets.cannons.scale);this.cannons.add(barrel);this.isolateShipMaterials(barrel);}
   }
-  makeTunnel() {
-    const walls=new THREE.BufferGeometry();this.wallArray=new Float32Array(tunnel.vertexCount());walls.setAttribute('position',new THREE.BufferAttribute(this.wallArray,3).setUsage(THREE.DynamicDrawUsage));
-    this.walls=new THREE.Mesh(walls,new THREE.MeshBasicMaterial({color:tunnel.wallColor,side:THREE.DoubleSide,transparent:true,opacity:renderMath.wallOpacity,depthWrite:false}));this.walls.frustumCulled=false;this.scene.add(this.walls);
-    const lines=new THREE.BufferGeometry();this.lineArray=new Float32Array(tunnel.lineCount());lines.setAttribute('position',new THREE.BufferAttribute(this.lineArray,3).setUsage(THREE.DynamicDrawUsage));
-    this.lines=new THREE.LineSegments(lines,new THREE.LineBasicMaterial({color:tunnel.railColor,transparent:true,opacity:renderMath.lineOpacity}));this.lines.frustumCulled=false;this.scene.add(this.lines);
-  }
   makeStars() {
     const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(gfx.stars(),3));
     // Small octahedra, rather than circular sprites: even the distant stars are polygonal.
@@ -105,7 +99,7 @@ class FlightScene {
     }
   }
   applyTuning() {
-    this.scene.fog.density=gfx.fogDensity;this.walls.material.opacity=renderMath.wallOpacity;this.lines.material.opacity=renderMath.lineOpacity;
+    this.scene.fog.density=gfx.fogDensity;this.environment.clear();this.route.reset(tuning.seed);
   }
   updateReticle(s) {
     this.camera.updateMatrixWorld();
@@ -120,7 +114,7 @@ class FlightScene {
   makeEntity(e) {
     let mesh;
     if(e.type==='enemy')mesh=this.parts(assets.enemyParts);
-    if(e.type==='rock'){mesh=new THREE.Mesh(this.geometry('ico'),this.material('fur'));mesh.scale.fromArray(renderMath.rockSize(e));}
+    if(e.type==='rock'){mesh=new THREE.Mesh(this.geometry(e.theme==='station'?'box':'ico'),this.material(e.theme==='station'?'dark':'fur'));mesh.scale.fromArray(renderMath.rockSize(e));}
     if(e.type==='barrier'){mesh=new THREE.Group();const body=new THREE.Mesh(this.geometry('box'),this.material('orange'));body.scale.fromArray(renderMath.barrierSize(e));mesh.add(body);const edges=new THREE.LineSegments(new THREE.EdgesGeometry(body.geometry),new THREE.LineBasicMaterial({color:renderMath.barrierEdgeColor}));edges.scale.copy(body.scale);mesh.add(edges);}
     if(e.type==='pickup'){
       mesh=new THREE.Group();
@@ -190,11 +184,6 @@ class FlightScene {
     crash.dog.rotation.set(0,Math.sin(t*2)*.2,Math.sin(t*3)*.08);
     crash.canopy.scale.setScalar(math.clamp(t/.4,.01,1));
   }
-  updateTunnel(distance,sector) {
-    tunnel.fillWalls(this.wallArray,distance);tunnel.fillLines(this.lineArray,distance);
-    this.walls.geometry.attributes.position.needsUpdate=true;this.lines.geometry.attributes.position.needsUpdate=true;
-    if(this.sector!==sector){this.sector=sector;this.lines.material.color.set(race.sectorColor(sector));}
-  }
   render(s,dt,titleTime,entities,bullets) {
     if(s.mode==='title'){this.speedEffects.clear();return;}
     this.setCannons(s.weapon.tier);
@@ -202,7 +191,7 @@ class FlightScene {
     this.ship.position.fromArray(pose.position);this.ship.rotation.fromArray(pose.rotation);this.ship.scale.setScalar(renderMath.flightScale);this.ship.visible=!['defeat','crashing'].includes(s.mode)&&s.resumeMode!=='crashing'&&!pose.blink;
     this.camera.position.fromArray(camera.position);this.camera.lookAt(...camera.look);
     this.rainbow(s);this.shield.visible=s.protection>0;this.shield.scale.setScalar(renderMath.flightShieldScale(s.elapsed));
-    this.updateTunnel(s.distance,s.sector);this.synchronize(entities,bullets,s);this.particles.update(s,dt);this.environment.update(s);this.speedEffects.update(s,dt);this.updateCrash(s);
+    this.route.use(s.seed);this.synchronize(entities,bullets,s);this.particles.update(s,dt);this.environment.update(s);this.speedEffects.update(s,dt);this.updateCrash(s);
     this.updateReticle(s);
     this.dog.rotation.y=assets.dogAnimation(titleTime);
     for(const engine of this.engines)engine.scale.fromArray(assets.engineScale(titleTime,s.boosting||s.turbo>0));

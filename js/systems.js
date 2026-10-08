@@ -4,15 +4,17 @@ const {race,flight,weapon,encounters,pickups,propulsion,crash,checkpoint,voices}
 
 /** Runs simulation and dispatches typed events. Rendering and sound own their resources. */
 class FlightSystems {
-  constructor(scene,sound){this.scene=scene;this.sound=sound;this.entities=[];this.bullets=[];}
-  reset(){this.entities.length=0;this.bullets.length=0;this.scene.clear();}
+  constructor(scene,sound,route=scene.route||new namespace.RoutePlan()){this.scene=scene;this.sound=sound;this.entities=[];this.bullets=[];this.route=route;}
+  reset(){this.entities.length=0;this.bullets.length=0;this.scene.clear();this.route.reset();}
   step(s,dt,keys){
     if(s.mode==='crashing'){crash.advance(s,dt);return;}
     if(s.mode!=='playing')return;
-    const wave=s.wave;
+    this.route.use(s.seed);const wave=s.wave,bestWave=s.bestWave,previousPlayer={x:s.player.x,y:s.player.y};
     race.advance(s,dt,keys);flight.step(s.player,keys,dt);weapon.tick(s.weapon,dt);
+    this.route.collide(s,this.sound);s.wave=race.waveAt(s.distance);s.sector=race.sectorAt(s.wave);s.bestWave=Math.max(bestWave,s.wave);
     if(s.wave!==wave)this.crossCheckpoint(s);
-    this.spawn(s);this.shoot(s,keys);this.move(s,dt);this.collide(s);this.cleanup(s);
+    this.spawn(s);this.shoot(s,keys);this.move(s,dt);
+    this.collide(s);this.route.crossRings(s,previousPlayer,this.sound);this.cleanup(s);
     if(s.hull<=0){
       crash.begin(s);this.scene.startCrash(s);this.sound.crash();
     }
@@ -23,7 +25,7 @@ class FlightSystems {
     this.scene.celebrate(s);this.sound.play('checkpoint');this.sound.voice('checkpoint',s);
   }
   spawn(s){
-    while(encounters.canSpawn(s,this.entities.length))this.entities.push(...encounters.make(s));
+    while(encounters.canSpawn(s,this.entities.length))this.entities.push(...encounters.make(s).filter(e=>this.route.allowsEncounter(e)));
     while(pickups.canSpawn(s))this.entities.push(pickups.scheduled(s));
   }
   shoot(s,keys){

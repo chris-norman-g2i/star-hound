@@ -21,10 +21,11 @@
 <button id="launch" class="hangar-action hangar-primary"><span class="menu-star" aria-hidden="true">✦</span><span>START FLIGHT</span></button>
 <button id="checkpoint-resume" class="hangar-action" disabled aria-describedby="checkpoint-note"><span class="menu-star" aria-hidden="true">✦</span><span>CONTINUE</span></button>
 <button id="flight-manual" class="hangar-action"><span class="menu-star" aria-hidden="true">✦</span><span>FLIGHT MANUAL</span></button>
-<button id="tune-button" class="hangar-action"><span class="menu-star" aria-hidden="true">✦</span><span>OPTIONS</span></button>
+<button id="options-button" class="hangar-action"><span class="menu-star" aria-hidden="true">✦</span><span>OPTIONS</span></button>
+<button id="tune-button" class="hangar-action developer-action"><span class="menu-star" aria-hidden="true">✦</span><span>DEVELOPER SETTINGS</span></button>
 </nav>
 <p id="checkpoint-note" class="hangar-status"></p>
-<p class="hangar-keys">↑ ↓ SELECT &nbsp; ENTER CONFIRM &nbsp; F2 OPTIONS</p>
+<p class="hangar-keys">↑ ↓ SELECT &nbsp; ENTER CONFIRM</p>
 </div>
 </main>
 <section id="hud" class="hidden" aria-label="Flight instruments">
@@ -39,27 +40,42 @@
 </div>
 <div class="instrument weapon"><span class="tiny-label" id="cannon-name">SINGLE CANNON</span><div class="meter"><div id="heat-fill"></div></div><span id="weapon-status">HEAT 0% · AMMO ∞</span><small id="upgrade-status">FIRE I · COOL I</small></div>
 </div>
-<div class="hud-hints">WASD / ARROWS · STEER &nbsp; SPACE · FIRE &nbsp; SHIFT · BOOST &nbsp; ESC · PAUSE &nbsp; M · NEXT TRACK &nbsp; F2 · TUNE</div>
+<div class="hud-hints">WASD / ARROWS · STEER &nbsp; SPACE · FIRE &nbsp; SHIFT · BOOST &nbsp; ESC · PAUSE &nbsp; M · NEXT TRACK</div>
 </section>
-<section id="overlay" class="screen hidden" aria-labelledby="overlay-title" aria-describedby="overlay-copy">
-<div class="panel pause-panel">
-<div class="pause-art" aria-hidden="true"><span class="pause-art-caption">ONE VERY GOOD PILOT.</span></div>
-<div class="pause-content">
-<div class="pause-brand"><span aria-hidden="true">✦</span> STAR HOUND <small>BONE CHASER</small></div>
-<div class="eyebrow" id="overlay-eyebrow">FLIGHT PAUSED</div>
-<h2 id="overlay-title">CATCH YOUR<br>BREATH.</h2>
+<section id="overlay" class="screen hidden" role="dialog" aria-modal="true" aria-label="Flight paused">
+<nav id="pause-menu" class="pause-menu flight-frame hidden" aria-label="Pause menu">
+<img class="pause-logo" src="./assets/title/star-hound-logo-v1.png" alt="Star Hound — Bone Chaser" width="2158" height="729" draggable="false">
+<div class="pause-actions">
+<button id="resume" class="pause-action pause-primary">RESUME FLIGHT</button>
+<button id="home" class="pause-action">RETURN TO HANGAR</button>
+</div>
+</nav>
+<section id="flight-results" class="results-panel hidden" aria-labelledby="overlay-title" aria-describedby="overlay-copy">
+<div class="results-art" aria-hidden="true"></div>
+<div class="results-content">
+<div class="eyebrow" id="overlay-eyebrow">ALL LIVES LOST</div>
+<h2 id="overlay-title">EVERY DOG HAS<br> ANOTHER DAY.</h2>
 <div id="run-stats" aria-label="Flight statistics"></div>
 <p id="overlay-copy"></p>
-<nav class="pause-actions" aria-label="Flight menu">
-<button id="resume" class="pause-action pause-primary"><span class="pause-star" aria-hidden="true">✦</span> RESUME FLIGHT <span class="pause-key" aria-hidden="true">ESC</span></button>
-<button id="restart" class="pause-action"><span class="pause-star" aria-hidden="true">✦</span> NEW FLIGHT</button>
-<button id="home" class="pause-action"><span class="pause-star" aria-hidden="true">✦</span> RETURN TO HANGAR</button>
+<nav class="results-actions" aria-label="Flight results menu">
+<button id="restart" class="choice-action choice-primary">NEW FLIGHT</button>
+<button id="results-home" class="choice-action">RETURN TO HANGAR</button>
 </nav>
-<p class="pause-hint">TAKE YOUR TIME, CAPTAIN.</p>
-</div>
 </div>
 </section>
-<dialog id="manual"><button id="close-manual" class="close" aria-label="Close flight manual">×</button><div class="eyebrow">CAPTAIN'S FIELD GUIDE</div><h2>GOOD DOG.<br>GREAT PILOT.</h2><p>Survive as long as you can. The first 16 waves build a 2–5 minute challenge; space continues forever. Runs beyond 10 minutes demand luck and skill. Shoot drones and rocks, and dodge indestructible orange barriers.</p><div class="manual-grid"><div><h3>FLIGHT</h3><p><kbd>WASD / ↑ ↓ ← →</kbd> Steer<br><kbd>Space</kbd> Hold to fire<br><kbd>Shift</kbd> Burn speed charge<br><kbd>Esc</kbd> Pause<br><kbd>P</kbd> Preview all music<br><kbd>M</kbd> Next music track<br><kbd>F2</kbd> Tuning &amp; seed<br><kbd>[ / ]</kbd> Previous / next wave (tuning)</p></div><div><h3>YOUR CANNON</h3><p>Infinite ammunition. Find 2, 4, then 6 barrels. Fire-rate and cooling upgrades reach level IV. Overheating locks your cannon until it cools completely, plus 0.5 seconds. Feather your fire to stay ready.</p></div></div><h3>LIVES &amp; CHECKPOINTS</h3><p>Start with three lives. A lost life shows a 2.6-second crash and dog ejection, then restarts the current wave with full hull and a three-second shield. Your upgrades, charge, kills and score return to their wave-start checkpoint values; flight time keeps counting. Fly through the large checkpoint ring at each wave boundary. Every wave begins with a quiet, bonus-rich stretch. There is no victory screen or finish line.</p><p>Wave checkpoints are retained automatically when browser storage is available. Resume from checkpoint in the hangar. A new run clears the previous checkpoint. Losing all three lives ends the run and clears its checkpoint.</p><div class="pickup-guide"><span><i class="cyan">🦴</i> MILK BONE · CHARGE +10–15</span><span><i class="pink">🍗</i> DRUMSTICK · CANNON</span><span><i class="blue">🥓</i> BACON · FIRE RATE</span><span><i class="purple">🧀</i> CHEESE · COOLING</span><span><i class="gold">🐾</i> PAW BISCUIT · INVINCIBLE · 7s</span><span><i class="orange">🌭</i> SAUSAGE · TURBO · 1.4× / 7s</span><span><i class="green">🥣</i> KIBBLE BOWL · REPAIR +10–25%</span></div><p class="fineprint">Sixteen Web Audio music entries, including imported Stardog tracks and cues. Title music starts automatically when browser audio permissions allow. Desktop keyboard controls. Sound and separate volume controls are in Options. Main music follows flight speed.</p></dialog>
+</section>
+<dialog id="manual" class="controls-manual flight-frame" aria-labelledby="manual-title">
+<button id="close-manual" class="close" aria-label="Close controls">×</button>
+<h2 id="manual-title">CONTROLS</h2>
+<dl class="controls-list">
+<div class="control-row steering-control">
+<dt aria-label="W A S D or arrow keys"><div class="steering-keys" aria-hidden="true"><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><div><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd></div></div></dt>
+<dd>STEER</dd>
+</div>
+<div class="control-row"><dt><kbd class="space-key">SPACE</kbd></dt><dd>FIRE WEAPON</dd></div>
+<div class="control-row"><dt><kbd>ESC</kbd></dt><dd>PAUSE</dd></div>
+</dl>
+</dialog>
 <dialog id="new-run-dialog">
 <form method="dialog"><button class="close" aria-label="Close">×</button></form>
 <div class="eyebrow">NEW FLIGHT</div><h2>START FRESH?</h2><p id="new-run-note"></p>
@@ -68,12 +84,20 @@
 <button id="resume-checkpoint-dialog" class="choice-action">RESUME CHECKPOINT</button>
 </div><p class="fineprint">Starting a new flight replaces your saved checkpoint.</p>
 </dialog>
-<dialog id="tuning-dialog"><button id="close-tuning" class="close" aria-label="Close tuning">×</button><div class="eyebrow">FLIGHT LAB · MVP</div><h2>FLIGHT OPTIONS.</h2><section class="audio-options"><h3>AUDIO MIX</h3>
+<dialog id="options-dialog"><button id="close-options" class="close" aria-label="Close options">×</button><div class="eyebrow">FLIGHT PREFERENCES</div><h2>OPTIONS.</h2><section class="audio-options"><h3>AUDIO MIX</h3>
 <label>Music <input id="music-volume" type="range" min="0" max="1" step=".01" value="1"><output id="music-volume-value">100%</output></label>
 <label>Sound effects <input id="effects-volume" type="range" min="0" max="1" step=".01" value="1"><output id="effects-volume-value">100%</output></label>
 <label>Voices <input id="voice-volume" type="range" min="0" max="1" step=".01" value="1"><output id="voice-volume-value">100%</output></label>
 <button id="audio-button" class="icon-button">MUTE ALL</button>
-</section><p>Overrides apply immediately. Applying restarts the current wave with your upgrades and remaining lives. New runs use the selected seed. Checkpoint resumes use their original seed and rules.</p><label class="seed-label">RANDOM SEED <input id="seed-input" type="text" maxlength="80" value="GOODBOY" list="seed-presets"></label><datalist id="seed-presets"><option value="GOODBOY"><option value="COPPER"><option value="DEEP-SPACE"></datalist><div id="tuning-fields" class="tuning-grid"></div><div class="tuning-actions"><button id="apply-tuning" class="primary">APPLY OVERRIDES</button><button id="export-settings" class="icon-button">COPY COMPLETE SETTINGS.JS</button><button id="reset-tuning" class="text-button">RESET DEFAULTS</button></div><label class="jump-label">JUMP TO WAVE <input id="jump-wave" type="number" min="1" max="100000" value="1"><button id="jump-button" class="icon-button">JUMP</button></label><p>With this dialog closed, [ and ] jump one wave. These tuning shortcuts replace the current checkpoint. Specialized visual and music editors are reserved for polish.</p><p id="tuning-status" role="status"></p><textarea id="settings-export" class="hidden" readonly aria-label="Complete settings.js source for manual copy"></textarea></dialog>
+</section><p>Your audio preferences are saved automatically.</p></dialog>
+<dialog id="tuning-dialog"><button id="close-tuning" class="close" aria-label="Close developer settings">×</button><div class="eyebrow">FLIGHT LAB</div><h2>DEVELOPER SETTINGS.</h2>
+<p>Apply saves these settings for new flights and checkpoint resumes. Return to the hangar to change them. Play Now applies the form and starts a fresh flight at the selected wave, replacing your checkpoint.</p>
+<label class="seed-label">RANDOM SEED <input id="seed-input" type="text" maxlength="80" value="GOODBOY" list="seed-presets"></label><datalist id="seed-presets"><option value="GOODBOY"><option value="COPPER"><option value="DEEP-SPACE"></datalist>
+<div id="tuning-fields" class="tuning-grid"></div>
+<div class="tuning-actions"><button id="apply-tuning" class="primary">APPLY</button><button id="export-settings" class="icon-button">COPY COMPLETE SETTINGS.JS</button><button id="reset-tuning" class="text-button">RESET DEFAULTS</button></div>
+<label class="jump-label">START AT WAVE <input id="jump-wave" type="number" min="1" max="100000" value="1"><button id="jump-button" class="icon-button">PLAY NOW</button></label>
+<p>Open space share controls the distance spent in open space. Motif weights control their relative frequency; a weight of zero disables that motif. Ring bonuses decay gradually and are lost or reduced by collisions.</p>
+<p id="tuning-status" role="status"></p><textarea id="settings-export" class="hidden" readonly aria-label="Complete settings.js source for manual copy"></textarea></dialog>
 <!-- Ordered classic scripts work on both file:// and static HTTP(S) hosting. -->
 <script>window.addEventListener('error',function(){document.getElementById('load-error').classList.remove('hidden');},true);</script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -83,6 +107,7 @@
 <script src="./js/voices.js"></script>
 <script src="./js/sound.js"></script>
 <script src="./js/effects.js"></script>
+<script src="./js/route.js"></script>
 <script src="./js/environment.js"></script>
 <script src="./js/scene.js"></script>
 <script src="./js/systems.js"></script>

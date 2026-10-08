@@ -2,21 +2,23 @@
 'use strict';
 const THREE=namespace.THREE;
 const {race,math,gfx,ui,tuning}=namespace.settings;
-const {SoundEngine,FlightScene,FlightSystems,FlightInterface,WaveCheckpoints,FlightControls}=namespace;
+const {SoundEngine,FlightScene,FlightSystems,FlightInterface,WaveCheckpoints,FlightControls,RoutePlan}=namespace;
 let initialized=false;
 function init(){
   if(initialized)return;
   if(!THREE){document.getElementById('load-error').classList.remove('hidden');return;}
   initialized=true;
-  const sound=new SoundEngine(),view=new FlightInterface(),checkpoints=new WaveCheckpoints();
+  const sound=new SoundEngine(),view=new FlightInterface(),checkpoints=new WaveCheckpoints(),route=new RoutePlan();
   let scene;
-  try{scene=new FlightScene(document.getElementById('world'));}
+  try{scene=new FlightScene(document.getElementById('world'),route);}
   catch(error){document.getElementById('load-error').classList.remove('hidden');throw error;}
-  const systems=new FlightSystems(scene,sound),clock=new THREE.Clock(),keys=new Set();
+  const systems=new FlightSystems(scene,sound,route),clock=new THREE.Clock(),keys=new Set();
   let state=race.state(tuning.seed),titleTime=0;
   // Start/update coordinate resources. Rules, arithmetic and authored behavior stay in settings.
-  async function start(){
-    systems.reset();state=race.state(tuning.seed);state.mode='playing';checkpoints.begin(state);
+  async function start(wave=1){
+    tuning.load();systems.reset();state=race.state(tuning.seed);
+    if(wave>1)race.jump(state,wave);
+    state.mode='playing';state.checkpointWave=state.wave;scene.applyTuning();checkpoints.begin(state);
     keys.clear();document.activeElement?.blur();await sound.resume();await sound.unlock();view.audio(sound);sound.beginFlight(state);sound.play('launch');
     sound.voice?.('launch',state);
   }
@@ -44,23 +46,19 @@ function init(){
   async function home(){sound.clearVoices?.();systems.reset();state=race.state(tuning.seed);keys.clear();await sound.resume();}
   async function toggleAudio(){await sound.toggle();view.audio(sound);}
   function nextTrack(){if(state.mode==='playing'){sound.nextTrack(state);}}
-  function jump(wave){
-    if(!['playing','paused'].includes(state.mode)||state.resumeMode==='crashing'&&state.mode==='paused'){controls.status.textContent='Launch or resume a run before jumping to a wave.';return;}
-    const mode=state.mode;checkpoints.jump(state,wave,systems);state.mode=mode;keys.clear();
-    controls.status.textContent=`Checkpoint moved to wave ${state.wave}.`;
-  }
   const controls=new FlightControls({
-    state:()=>state,jump,
-    opened:()=>{keys.clear();if(state.mode==='playing'||state.mode==='crashing')pause();},
+    state:()=>state,playNow:start,
+    opened:()=>{keys.clear();},
     closed:()=>{keys.clear();},
-    applied:()=>{scene.applyTuning();if(state.mode==='playing'||state.mode==='paused')jump(state.wave);},
+    applied:()=>{scene.applyTuning();},
   });
   const requestNew=()=>{if(checkpoints.current)view.confirmNew(checkpoints);else start();};
   view.nodes.launch.addEventListener('click',requestNew);view.nodes.restart.addEventListener('click',requestNew);
   view.nodes['checkpoint-resume'].addEventListener('click',continueCheckpoint);
   view.nodes['confirm-new'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();start();});
   view.nodes['resume-checkpoint-dialog'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();continueCheckpoint();});
-  view.nodes.resume.addEventListener('click',pause);view.nodes.home.addEventListener('click',home);
+  view.nodes.resume.addEventListener('click',pause);
+  for(const id of ['home','results-home'])view.nodes[id].addEventListener('click',home);
   for(const channel of ['music','effects','voice']){
     const input=document.getElementById(channel+'-volume');input.value=sound.volumes[channel];
     input.addEventListener('input',()=>{sound.setVolume(channel,Number(input.value));view.audio(sound);});
@@ -68,16 +66,16 @@ function init(){
   view.audio(sound);
   view.nodes['audio-button'].addEventListener('click',toggleAudio);view.nodes['pause-button'].addEventListener('click',pause);
   view.nodes['flight-manual'].addEventListener('click',()=>view.showManual());view.nodes['close-manual'].addEventListener('click',()=>view.hideManual());
+  view.nodes['options-button'].addEventListener('click',()=>view.nodes['options-dialog'].showModal());
+  view.nodes['close-options'].addEventListener('click',()=>view.nodes['options-dialog'].close());
   // Retry the startup playback request if the browser requires a user gesture.
   const unlockAudio=()=>{if(!sound.enabled)sound.unlock();};
   window.addEventListener('pointerdown',unlockAudio,{capture:true});
   window.addEventListener('keydown',event=>{if(!event.repeat)unlockAudio();},{capture:true});
   window.addEventListener('keydown',event=>{
-    if(event.code==='F2'&&view.nodes['tuning-dialog'].open){controls.handleKey(event);return;}
     if(view.isDialogOpen())return;
     if(['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName))return;
-    if(controls.handleKey(event))return;
-    if(view.navigateTitle(event,state))return;
+    if(view.navigateMenu(event,state))return;
     if(event.target.tagName==='BUTTON'&&(event.code==='Space'||event.code==='Enter'))return;
     if(ui.keys.includes(event.code)&&state.mode==='playing'){event.preventDefault();keys.add(event.code);}
     if(event.repeat)return;
