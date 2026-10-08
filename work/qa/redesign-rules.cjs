@@ -74,7 +74,7 @@ for(const speed of [0,56,100,200,300,1000]){
  assert(Number.isFinite(speedEffects.hudBlur(speed)));assert(Number.isFinite(speedEffects.blur(speed)));
 }
 assert(speedEffects.intensity(56)>0);assert.equal(speedEffects.hudBlur(180),0);assert(speedEffects.hudBlur(400)>0);
-for(const id of Object.keys(music.tracks))for(let step=0;step<256;step++)for(const note of music.notes(id,step,music.tracks[id].bpm))assert(Number.isFinite(note.note)&&Number.isFinite(note.duration));
+for(const id of Object.keys(music.tracks))for(let step=0;step<256;step++)for(const note of music.events(id,step,music.tracks[id].bpm??music.oneShotBpm))assert(Number.isFinite(note.frequency)&&Number.isFinite(note.duration));
 // Seed replay, decorative separation, checkpoint export and blocked persistence.
 const layout=()=>{const s=race.state('REPLAY');race.jump(s,8);const result=[];for(let i=0;i<20;i++){result.push(encounters.make(s));for(let j=0;j<100;j++)scenery.placement(j);result.push(pickups.scheduled(s));}return JSON.stringify(result);};assert.equal(layout(),layout());
 for(let i=0;i<10000;i++){const p=scenery.placement(i);if(scenery.clearsPath(p)){const c=tunnel.center(p.d);for(let o=-p.radius;o<=p.radius;o+=.5){const path=tunnel.center(p.d+o);assert(Math.hypot(c.x+p.x-path.x,c.y+p.y-path.y)>scenery.corridorRadius+p.radius+scenery.clearance-.2);}}}

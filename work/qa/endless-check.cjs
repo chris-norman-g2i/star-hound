@@ -41,9 +41,9 @@ assert.equal(types.size,7);assert(charges.size>1);assert(repairs.size>1);assert.
 let powered=race.state();for(const type of ['cannon','fire','cool'])for(let i=0;i<10;i++)pickups.collect(pickups.make(type,0,0,0),powered);assert.equal(powered.weapon.tier,3);assert.equal(powered.weapon.fireLevel,3);assert.equal(powered.weapon.coolLevel,3);
 // Complete export executes as a replacement classic settings file, retaining numeric overrides.
 tuning.apply({'race.waveLength':1250,'weapon.extraCooldown':.7});tuning.seed='EXPORT';const exported=tuning.exportSource(),replacement=vm.createContext({window:{},console,Math,JSON,Number,Float32Array,Uint8Array});vm.runInContext(exported,replacement);const replace=replacement.window.Starhound.settings;assert.equal(replace.race.waveLength,1250);assert.equal(replace.weapon.extraCooldown,.7);assert.equal(replace.tuning.seed,'EXPORT');assert.equal(replace.pickups.types.length,7);tuning.apply({'race.waveLength':1100,'weapon.extraCooldown':.5});
-// Seven scores stay finite, resume arrangements and map all endless sectors.
-for(const id of Object.keys(music.tracks))for(let step=0;step<256;step++)for(const note of music.notes(id,step,music.tracks[id].bpm))assert(Number.isFinite(note.note)&&Number.isFinite(note.duration));
-assert.equal(music.transitionStep('game0',130,{game0:74}),74);assert.equal(music.trackFor({...s,mode:'playing',sector:27,invincible:0}),'game3');
+// The full catalog stays finite, resumes arrangements and maps all endless sectors.
+for(const id of Object.keys(music.tracks))for(let step=0;step<256;step++)for(const note of music.events(id,step,music.tracks[id].bpm??music.oneShotBpm))assert(Number.isFinite(note.frequency)&&Number.isFinite(note.duration));
+assert.equal(music.transitionStep('game0',130,{game0:74}),74);assert.equal(music.trackFor({...s,mode:'playing',sector:27,invincible:0}),'stardog3');
 console.log(JSON.stringify({first16Seconds:+first16.toFixed(2),waveAt10Minutes:ten,tierHeat:durations,checks:'lives, resume, storage errors, 64 weapon combinations × 3 timesteps, seeds, recovery, pickups, complete export, seven scores passed'},null,2));
 // Integrated ten-minute pipeline stress check with protection, including firing and checkpoint rollover.
 let stress=race.state('STRESS');stress.mode='playing';stress.weapon.tier=3;stress.weapon.fireLevel=3;stress.weapon.coolLevel=3;store.begin(stress);sys.reset();let peak=0;

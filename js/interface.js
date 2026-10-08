@@ -3,13 +3,26 @@
 const {ui,math,race}=namespace.settings;
 class FlightInterface {
   constructor(){
-    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','sector','sector-name','wave','wave-dots','hull-fill','hull-text','lives-text','speed','speed-fill','effect-label','heat-fill','cannon-name','weapon-status','upgrade-status','announcement','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','checkpoint-note','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','track-name','tuning-dialog'])this.nodes[id]=document.getElementById(id);
+    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','sector','sector-name','wave','wave-dots','hull-fill','hull-text','lives-text','speed','speed-fill','effect-label','heat-fill','cannon-name','weapon-status','upgrade-status','announcement','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','checkpoint-note','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','track-name','music-debug','music-debug-name','music-debug-status','tuning-dialog'])this.nodes[id]=document.getElementById(id);
     for(let i=0;i<race.wavesPerSector;i++)this.nodes['wave-dots'].append(document.createElement('i'));
     this.lastMode=null;this.lastCheckpoint='';this.hangar=new namespace.HangarTitle();
   }
   audio(sound){
     this.nodes['audio-button'].textContent=sound.muted?'UNMUTE ALL':'MUTE ALL';
     for(const channel of ['music','effects','voice'])document.getElementById(channel+'-volume-value').textContent=Math.round(sound.volumes[channel]*100)+'%';
+  }
+  music(sound){
+    const status=sound.musicStatus,n=this.nodes;
+    n['track-name'].textContent=status.name;
+    n['music-debug'].classList.toggle('hidden',!namespace.settings.music.debug.enabled);
+    n['music-debug-name'].textContent=status.name;
+    const flags=[status.preview?'PREVIEW':'AUTO'];
+    if(status.bpm)flags.push(`${Math.round(status.bpm)} BPM`);
+    if(status.locked)flags.push('AUDIO SUSPENDED');
+    else if(status.muted)flags.push('MUTED');
+    else if(status.paused)flags.push('PAUSED');
+    else if(status.finished)flags.push('FINISHED');
+    n['music-debug-status'].textContent=flags.join(' · ');
   }
   checkpoint(store){
     const n=this.nodes,c=store.current;const label=store.warning||(c?`CHECKPOINT ${c.wave} · ${c.lives} LIVES · NEW FLIGHT CLEARS PROGRESS`:'3 LIVES · ENDLESS WAVES · NO CHECKPOINT YET');

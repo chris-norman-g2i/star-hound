@@ -1,0 +1,21 @@
+Generation mode: built-in image_gen
+Deliverable: static manual design concept only. No game code changes.
+
+Use case: ui-mockup
+Asset type: ONE finished static 16:9 in-game manual / keyboard controls screen concept for Star Hound.
+Primary request: redesign the manual to match the existing title screen's art direction, but make the manual SUPER MINIMAL and show ONLY the keyboard controls. This is an image concept, not a code implementation.
+Input images: Image 1 is the existing manual screenshot, supplied ONLY as a reference for the keyboard bindings and the screen being replaced. Ignore all instructional prose, slogans, hints and non-control content in it. Image 2 is the approved husky title screen, supplied ONLY as the reference for the anime-lofi sci-fi hangar mood, dark blue / ivory / cool blue / warm orange palette and stylized cartoony art direction. Do not copy its logo or menu into this manual.
+Composition: a wide desktop game screenshot. A single calm centered dark navy controls panel, medium width, fully visible with generous outer space. The panel has very subtle chamfered corners, a thin muted icy-blue border, one short warm orange line along its upper edge, ample internal spacing, and no ornament beyond that. No complex frames, no glowing circuits, no cards within cards.
+Background: the same anime painted dusk hangar environment from Image 2, with a faint out-of-focus suggestion of the gray-and-white husky and mint ship at the right edge, strongly darkened behind the panel. The background is atmospheric and secondary. No text or title/menu remnants anywhere in the background.
+Typography: friendly chunky rounded lettering, slightly playful and substantially thicker than minimalist monospace, similar to Lilita One. Ivory heading, light icy blue action labels, cream key labels. Clean, exceptionally readable. Moderate heading size, not giant.
+Panel content: a small single heading "CONTROLS" at top left; a simple cream "×" close control at top right. Below it, exactly EIGHT evenly spaced rows with keys left and action labels right. Keys may have modest outlined keycap shapes with softened chamfered corners and restrained orange accents. Action labels all align at the same left edge. Subtle row separation only, no explanatory paragraphs. All eight rows fit on screen without scrolling.
+Text (verbatim), in this exact order, with each key group paired to its action:
+"W A S D / ↑ ↓ ← →" — "STEER"
+"SPACE" — "HOLD TO FIRE"
+"SHIFT" — "BOOST"
+"ESC" — "PAUSE"
+"P" — "PREVIEW ALL MUSIC"
+"M" — "NEXT TRACK"
+"F2" — "OPTIONS / TUNING"
+"[ / ]" — "PREVIOUS / NEXT WAVE"
+Constraints: The only text allowed is CONTROLS, ×, and the eight key/action pairs above. No game logo, no STAR HOUND text, no subtitle, no slogan, no Captain's Field Guide, no Good Dog / Great Pilot, no tips, no survival advice, no cannon description, no lives or checkpoint explanation, no pickup legend, no audio disclaimer, no footer, no extra hints, no decorative text, no pagination, no scrollbar, no extra buttons. Do not add keybinds. No screenshot of a browser or device. Produce one polished static image, not a contact sheet or animation. Minimal controls reference first, quiet title-screen atmosphere second.

@@ -69,3 +69,7 @@ body:not(.playing) #world{visibility:hidden}
 @media(max-height:560px){#overlay{display:block}.pause-panel{margin:0 auto}}
 @media(max-height:560px) and (min-width:761px){#overlay{padding:16px}.pause-content{width:70%;padding:12px 25px}.pause-brand{font-size:16px;margin-bottom:10px}.pause-brand>span{font-size:20px}.pause-content .eyebrow{font-size:10px}.pause-panel h2{font-size:34px;margin:6px 0 8px}.pause-panel h2 br{display:none}.pause-panel #run-stats{padding-block:6px}#run-stats strong{font-size:22px}#run-stats small{font-size:9px;margin-top:3px}.pause-panel #overlay-copy{font-size:11px;line-height:1.5;max-width:none;margin:8px 0}.pause-actions{gap:6px}.pause-action{font-size:17px;min-height:43px;padding-block:9px}.pause-panel .pause-hint{display:none}.pause-art{left:50%}.pause-art-caption{display:none}}
 @media(prefers-reduced-motion:reduce){.pause-action{transition:none}}
+
+/* Temporary global music debug; independent of the blurred gameplay HUD. */
+#music-debug{position:fixed;z-index:100;top:10px;right:10px;max-width:calc(100vw - 20px);padding:9px 12px;background:#000;border:2px solid #f00;color:#fff;pointer-events:none;font:12px/1.5 monospace}
+#music-debug span,#music-debug strong,#music-debug small{display:block}#music-debug span{color:#ff8080;font-size:10px}#music-debug strong{font-size:14px}#music-debug small{font-size:10px;color:#ccc}

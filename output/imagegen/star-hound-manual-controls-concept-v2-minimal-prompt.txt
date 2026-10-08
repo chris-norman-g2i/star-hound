@@ -1,0 +1,20 @@
+Generation mode: built-in image_gen edit
+Source: star-hound-manual-controls-concept-v1.png
+Deliverable: static manual concept only. No game code changes.
+
+Use case: precise-object-edit
+Asset type: revised static Star Hound manual concept image.
+Edit target: the supplied controls-screen concept.
+Primary request: simplify the manual to EXACTLY THREE controls and improve visual pairing by centering and clustering the keys with their action labels.
+
+Keep the existing anime-lofi hangar background, gray-and-white toon husky with fluffy curled tail, mint ship, warm dusk lighting, navy/icy-blue/orange/ivory palette, clean chamfered panel, and chunky playful typography. Keep the same wide image framing. Resize the centered panel to a compact, well-proportioned size that comfortably fits three controls without leftover blank rows. Maintain generous but intentional breathing room. Header "CONTROLS" centered above the content, simple "×" close control in the upper right.
+
+Rebuild panel content as exactly THREE grouped rows:
+1. A taller STEER row. In its left key group, four separate keycaps reading "W" "A" "S" "D" form ONE horizontal line. Directly BELOW that line, four separate arrow keycaps "↑" "↓" "←" "→" form a SECOND horizontal line. These two lines are stacked neatly, equal width, centered relative to each other. To the right of this combined key group place one action label "STEER", vertically centered across BOTH lines. STEER appears exactly once.
+2. One keycap "SPACE" paired closely with the action label "FIRE WEAPON".
+3. One keycap "ESC" paired closely with the action label "PAUSE".
+
+Layout: center the entire key/action cluster within the panel. All three action labels share one common LEFT alignment, not right alignment, in a narrow action column. The key groups are centered within their own compact column immediately to its left, separated by a modest consistent gap so each key/action pairing is visually obvious. Do NOT pin keys to the left panel edge or labels to the right panel edge. Each row reads as a tight centered unit; discreet horizontal rules may separate the three rows. The STEER row is taller to accommodate two stacked keycap lines; FIRE WEAPON and PAUSE rows are shorter. Use a readable, moderately large consistent label font.
+
+Delete completely: SHIFT and BOOST, P and PREVIEW ALL MUSIC, M and NEXT TRACK, F2 and OPTIONS / TUNING, brackets and PREVIOUS / NEXT WAVE. Delete the old phrase HOLD TO FIRE and replace it with FIRE WEAPON. No slash between the WASD and arrow lines; stack them.
+The ONLY allowed text/symbols are "CONTROLS", "×", "W", "A", "S", "D", "↑", "↓", "←", "→", "STEER", "SPACE", "FIRE WEAPON", "ESC", "PAUSE". No extra text, tips, hints, banners, logo, footer, extra controls, extra buttons, or empty rows. One static image only; no code or animation.

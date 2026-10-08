@@ -58,7 +58,7 @@ engine.clear();engine.event('launch',s);engine.audio.end();tick(10);assert.equal
   assert(checkpoint.valid(checkpoint.capture(s)));
   const ctx=vm.createContext({window:{}});vm.runInContext(tuning.exportSource(),ctx);assert.equal(ctx.window.Starhound.settings.voices.clips['computer-ready'],'computer/ready.mp3');
   // Actual flight events produce the intended announcements without changing collision rules.
-  const events=[],systems=new ns.FlightSystems({clear(){},burst(){}},{play(){},voice:(id,state)=>events.push([id,state.hull])});
+  const events=[],systems=new ns.FlightSystems({clear(){},burst(){},celebrate(){}},{play(){},voice:(id,state)=>events.push([id,state.hull])});
   const run=race.state();run.mode='playing';run.distance=race.waveLength-.1;systems.step(run,.025,new Set());assert(events.some(([id])=>id==='checkpoint'));
   systems.entities=[{type:'rock',x:run.player.x+2,y:0,d:run.distance-5,rx:.85,ry:.85,rz:1,hp:1,age:0}];run.previousDistance=run.distance;run.hurt=0;systems.cleanup(run);assert(events.some(([id])=>id==='nearMiss'));const count=events.length;systems.cleanup(run);assert.equal(events.length,count);
   console.log('Voice checks passed: queue order, preemption, pause/resume, mute, cooldowns, all character reactions, recovery encouragement, expiry, playback failure, unsupported audio, checkpoint compatibility and flight events.');

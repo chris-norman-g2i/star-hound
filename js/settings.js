@@ -481,10 +481,31 @@ const ui = ({
   finalScore(s) {return s.score+Math.floor(s.distance/10);},
 });
 
-// Seven original deterministic scores. Sixteenth-note steps, 16-bar harmonic cycles;
-// each main track has a distinct scale, bass rhythm, voicing, lead and synth palette.
+// Unified soundtrack catalog. Scores and synthesis are data; arrangers emit common audio events.
 const music = ({
-  startOffset:.035,lateOffset:.015,retireBusMs:6000,filterQ:.7,
+  startOffset:.035,lateOffset:.015,retireBusMs:6000,filterQ:.7,initialStep:0,oneShotBpm:60,immediateFade:.01,mixSmoothing:.025,
+  playback:{playlist:['game0','game1','game2','game3','stardog0','stardog1','stardog2','stardog3'],
+    roles:{title:'stardogTitle',defeat:'defeat',crashing:null},invincible:'invincible',pausedFallback:'playing'},
+  debug:{enabled:true,key:'KeyP',resetOnModeChange:true,tempoFollowsSpeed:false},
+  tempoScaling:{referenceSpeed:80,min:.85,max:2,growth:.5},
+  pitch:{referenceFrequency:440,referenceMidi:69,semitonesPerOctave:12,octaveRatio:2},
+  synthesis:{detuneSpacing:2,detuneCenter:.5,minimumFrequency:20,minimumDuration:.01,
+    attackFraction:.5,driveSamples:2048,driveRange:2,oversample:'2x',maxDelaySeconds:3,noiseOffsetFraction:.4},
+  voiceDefaults:{source:'tone',copies:2,releaseFactor:1,releaseSeconds:0,holdFraction:.65,
+    filterType:'lowpass',filterEndRatio:1,drive:0,echo:null},
+  voicePresets:{starhound:{},stardog:{attack:.006,releaseSeconds:0,releaseFactor:1,holdFraction:0,
+    filterEndRatio:.45,stopTail:.04,echo:{seconds:.26,feedback:.28,wet:.18}}},
+  trackDefaults:{arranger:'scale',mix:'ambient',loop:true},
+  mixes:{ambient:{output:'ambient'},direct:{gain:.27,output:'direct',
+    compressor:{threshold:-16,ratio:5,attack:.003,release:.16}}},
+  sequence:{stepsPerBeat:4,secondsPerMinute:60,bassMidi:36,melodyMidi:48,chordMidi:48,bassDuration:0.85,leadDuration:1.5,chordSteps:8,chordDuration:5,kickFrequency:150,kickEndFrequency:35,kickDuration:0.15,snareDuration:0.12,snareCutoff:2200,snareGain:0.28,hatDuration:0.04,hatCutoff:7000,hatGain:0.075},
+  legacy:{scale:[0,2,3,7,10,12,11,7],roots:[0,5,8,7],bass:[0,0,3,1,0,4,2,3],chords:[0,7,12],
+    bassMidi:33,bassDuration:0.88,kickEvery:4,kick:{frequency:75,to:28,duration:0.2},kickNoise:{duration:0.05,cutoff:500,gain:0.14},
+    snareEvery:8,snareStep:4,snare:{duration:0.18,cutoff:3800,gain:0.3},metal:{frequency:170,to:85,duration:0.15,gain:0.1},
+    hatEvery:2,hatStep:1,hat:{duration:0.04,cutoff:7000,gain:0.055},chordFrequency:110,
+    chordDuration:{slow:14,active:6},chordGain:{slow:0.065,active:0.12},offbeatEvery:4,offbeatStep:2,
+    offbeat:{octaves:2,duration:0.8,gain:0.13},titleLeadAfterStep:12,flareMultiplier:2,lead:{parity:2,oddOctaves:4,evenOctaves:8,duration:0.85,gain:0.14},
+    padEvery:8,pad:{octaves:4,duration:7,gain:0.08}},
   master:.58,musicGain:.65,sfxGain:.82,lookAhead:.16,schedulerMs:25,fade:.32,
   reverbSeconds:2.8,reverbDecay:2.9,reverbGain:.2,delaySeconds:.29,delayFeedback:.25,delayGain:.14,
   compressor:{threshold:-17,knee:18,ratio:3,attack:.006,release:.19},
@@ -496,6 +517,13 @@ const music = ({
     lead:{wave:'sawtooth',gain:.043,attack:.008,release:.18,cutoff:4100,detune:9},
     pad:{wave:'triangle',gain:.022,attack:.18,release:.5,cutoff:1900,detune:13},
     brightPad:{wave:'sawtooth',gain:.013,attack:.15,release:.45,cutoff:2700,detune:17},
+    stardogSparkle:{family:'stardog',wave:'triangle',copies:2,detune:2,gain:0.2,cutoff:6500,Q:0.4,drive:1.2},
+    stardogBass:{family:'stardog',wave:'sawtooth',copies:2,detune:3.5,gain:0.33,cutoff:950,Q:1.8,drive:5},
+    stardogGuitar:{family:'stardog',wave:'sawtooth',copies:3,detune:6,gain:0.16,cutoff:2700,Q:1.2,drive:11},
+    stardogLead:{family:'stardog',wave:'sawtooth',copies:3,detune:5,gain:0.2,cutoff:3800,Q:2.5,drive:5},
+    stardogPad:{family:'stardog',wave:'sawtooth',copies:3,detune:9,gain:0.06,cutoff:1250,Q:0.7,drive:2},
+    stardogKick:{family:'stardog',wave:'sine',copies:1,detune:0,gain:0.65,cutoff:600,Q:0.5,drive:3},
+    stardogMetal:{family:'stardog',wave:'triangle',copies:3,detune:11.5,gain:0.23,cutoff:2800,Q:3,drive:7},
   },
   tracks:{
     intro:{name:'Soft Launch',bpm:78,root:57,scale:[0,2,4,7,9],chords:[0,3,5,2,0,3,4,2],bass:[0,null,null,null,7,null,null,null,0,null,null,null,4,null,null,null],lead:[0,null,2,null,4,null,3,null,2,null,1,null,0,null,null,null],voice:'glass',pad:'pad',drums:'soft',flare:false},
@@ -505,15 +533,47 @@ const music = ({
     game3:{name:'Solar Disco',bpm:120,root:55,scale:[0,2,4,5,7,9,11],chords:[0,5,1,4,3,5,2,4],bass:[0,null,12,7,0,null,5,7,0,null,12,10,7,null,5,7],lead:[0,null,4,7,null,9,7,4,2,null,5,9,null,11,9,5],voice:'pluck',pad:'brightPad',drums:'disco',flare:true},
     invincible:{name:'Goodboy Forever',bpm:104,root:60,scale:[0,2,4,7,9],chords:[0,3,1,4,0,2,3,4],bass:[0,null,7,null,0,null,12,7,0,null,7,null,4,null,7,12],lead:[0,2,4,null,7,9,7,null,4,2,0,null,2,4,7,9],voice:'glass',pad:'brightPad',drums:'four',flare:true},
     defeat:{name:'Drifting Home',bpm:62,root:45,scale:[0,2,3,5,7,8,10],chords:[0,5,3,4,0,3,1,4],bass:[0,null,null,null,null,null,null,null,7,null,null,null,null,null,null,null],lead:[4,null,null,null,2,null,null,null,0,null,null,null,null,null,null,null],voice:'glass',pad:'pad',drums:'sad',flare:false},
+    stardog0:{name:'Iron Drive',bpm:100,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:4,
+      roots:[0,5,8,7],bass:[0,0,7,3,0,10,7,3],melody:[12,null,15,19,12,22,19,null],
+      kicks:[0,8],snares:[4,12],hats:[0,2,4,6,8,10,12,14],chords:[0,3,7],
+      leadVoice:'stardogGuitar',bassVoice:'stardogBass',chordVoice:'stardogGuitar',
+      leadGain:0.16,bassGain:0.3,chordGain:0.09,leadEcho:true,bassEcho:false,chordEcho:true},
+    stardog1:{name:'Neon Pursuit',bpm:106,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:4,
+      roots:[0,7,3,10],bass:[0,7,12,7,0,10,12,3],melody:[24,19,22,null,27,24,null,22,19,15,19,22,24,null,31,27],
+      kicks:[0,3,8,11],snares:[4,12],hats:[0,1,2,3,4,6,8,9,10,11,12,14],chords:[0,7,10],
+      leadVoice:'stardogLead',bassVoice:'stardogBass',chordVoice:'stardogGuitar',
+      leadGain:0.17,bassGain:0.25,chordGain:0.08,leadEcho:true,bassEcho:false,chordEcho:true},
+    stardog2:{name:'Heavy Orbit',bpm:93,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:4,
+      roots:[0,0,8,5],bass:[0,null,0,0,3,null,0,10],melody:[12,null,null,10,7,null,15,null],
+      kicks:[0,2,7,8,10],snares:[4,12,15],hats:[0,4,6,8,12,14],chords:[0,7,12],
+      leadVoice:'stardogGuitar',bassVoice:'stardogBass',chordVoice:'stardogGuitar',
+      leadGain:0.22,bassGain:0.36,chordGain:0.15,leadEcho:true,bassEcho:false,chordEcho:true},
+    stardog3:{name:'Solar Relay',bpm:103,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:4,
+      roots:[0,5,10,7],bass:[0,12,7,10,0,12,3,7],melody:[19,22,24,27,24,22,19,15,17,19,22,24,22,19,17,15],
+      kicks:[0,6,8,14],snares:[4,12],hats:[0,2,3,4,6,7,8,10,11,12,14,15],chords:[0,3,7,10],
+      leadVoice:'stardogMetal',bassVoice:'stardogBass',chordVoice:'stardogGuitar',
+      leadGain:0.12,bassGain:0.27,chordGain:0.1,leadEcho:true,bassEcho:false,chordEcho:true},
+    stardogInvincible:{name:'Rainbow Victory',bpm:130,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:4,
+      roots:[0,5,7,0],bass:[0,4,7,12,0,7,4,12],melody:[12,16,19,24,19,16,14,19,17,21,24,29,24,21,19,24],
+      kicks:[0,4,8,12],snares:[4,12],hats:[0,2,4,6,8,10,12,14],chords:[0,4,7,12],
+      leadVoice:'stardogSparkle',bassVoice:'stardogBass',chordVoice:'stardogSparkle',
+      leadGain:0.2,bassGain:0.22,chordGain:0.13,leadEcho:true,bassEcho:false,chordEcho:true},
+    stardogTitle:{name:'Title Music',bpm:68.18181818181819,arranger:'legacy',mix:'direct',stepsPerMeasure:16,measures:16,slow:false,title:true},
+    stardogPause:{name:'Pause Music',bpm:25,arranger:'legacy',mix:'direct',stepsPerMeasure:16,measures:16,slow:true,title:false},
+    stardogDeath:{name:'Death Music',bpm:25,arranger:'legacy',mix:'direct',stepsPerMeasure:16,measures:16,slow:true,title:false},
+    stardogVictory:{name:'Wave Victory Fanfare',arranger:'fanfare',mix:'direct',loop:false,lengthSteps:1,baseFrequency:196,intervals:[0,4,7,12,16,19,24],noteSpacing:0.1,duration:0.65,gain:0.2,chordDuration:1.5,chords:[0,7,12],leadVoice:'stardogGuitar',chordVoice:'stardogPad'},
   },
-  trackFor(s,index=s.sector%4) {return s.mode==='crashing'?null:s.mode==='title'?'intro':s.mode==='defeat'?'defeat':s.invincible>0?'invincible':`game${index}`;},
-  tempo(track,s) {return track.startsWith('game') ? this.tracks[track].bpm * (1+(math.clamp(s.speed/80,.85,2)-1)*.5) : this.tracks[track].bpm;},
+  trackFor(s,index=s.sector%this.playback.playlist.length) {
+    if(Object.hasOwn(this.playback.roles,s.mode))return this.playback.roles[s.mode];
+    return s.invincible>0?this.playback.invincible:this.playback.playlist[index];
+  },
+  tempo(track,s) {const t=this.tracks[track],c=this.tempoScaling;return (t.bpm??this.oneShotBpm)*(this.playback.playlist.includes(track)?1+(math.clamp(s.speed/c.referenceSpeed,c.min,c.max)-1)*c.growth:1);},
   transitionStep(id,step,positions) {return positions[id] ?? Math.ceil(step/16)*16;},
-  stepSeconds(bpm) {return 60/bpm/4;},
-  frequency(midi) {return 440*2**((midi-69)/12);},
+  stepSeconds(bpm) {return this.sequence.secondsPerMinute/bpm/this.sequence.stepsPerBeat;},
+  frequency(midi) {const p=this.pitch;return p.referenceFrequency*p.octaveRatio**((midi-p.referenceMidi)/p.semitonesPerOctave);},
   chordRoot(track,bar) {return track.root+track.scale[track.chords[Math.floor(bar/2)%track.chords.length]%track.scale.length];},
   degree(track,index) {return track.scale[index%track.scale.length]+Math.floor(index/track.scale.length)*12;},
-  notes(id,step,bpm) {
+  scaleNotes(id,step,bpm) {
     const t=this.tracks[id], part=step%16,bar=Math.floor(step/16)%16,root=this.chordRoot(t,bar),beat=this.stepSeconds(bpm), notes=[];
     const add=(voice,note,length,level=1,offset=0,pan=0)=>notes.push({voice,note,duration:beat*length,level,offset,pan});
     if(part===0 && bar%2===0) for(const [i,degree] of [0,2,4,6].entries())add(t.pad,root+12+this.degree(t,degree),28,1,0,(i-1.5)*.32);
@@ -526,7 +586,7 @@ const music = ({
     } else if(t.lead[part]!==null && (t.drums!=='soft'&&t.drums!=='sad'||bar%2===0))add(t.voice,root+12+this.degree(t,t.lead[part]),1.7,.85,0,Math.sin(part*.7)*.35);
     return notes;
   },
-  drums(id,step) {
+  scaleDrums(id,step) {
     const t=this.tracks[id],p=step%16,bar=Math.floor(step/16)%16;if(t.drums==='sad')return p===0&&bar%2===0?['softKick']:[];
     if(t.drums==='soft')return p===0?['softKick']:p===12?['softHat']:[];
     const out=[];
@@ -537,11 +597,19 @@ const music = ({
   },
   impulse(length,sampleRate) {const data=new Float32Array(length);for(let i=0;i<length;i++)data[i]=(Math.random()*2-1)*Math.pow(1-i/length,this.reverbDecay);return data;},
   samples(seconds,sampleRate) {return Math.floor(seconds*sampleRate);},
-  end(time,duration) {return time+duration;},
   offset(time,offset) {return time+offset;},
-  envelope(time,duration,synth,level) {return {peak:synth.gain*level,attack:time+synth.attack,hold:time+Math.max(synth.attack,duration*.65),end:time+duration+synth.release};},
-  detune(i,amount) {return i===0?-amount:amount;},
 });
+
+// Resolve common defaults once; playback consumes the same profiles for both sound palettes.
+music.mixes.ambient.gain=music.musicGain;
+music.voiceDefaults.Q=music.filterQ;
+for(const [id,voice] of Object.entries(music.synths)){
+  const {family='starhound',release,...authored}=voice;
+  music.synths[id]={...music.voiceDefaults,...music.voicePresets[family],...authored,
+    releaseSeconds:authored.releaseSeconds??release??music.voiceDefaults.releaseSeconds};
+}
+for(const [id,track] of Object.entries(music.tracks))music.tracks[id]={...music.trackDefaults,...track};
+music.previewOrder=Object.keys(music.tracks);
 
 const sfx = ({
   noiseSeconds:2,filterCutoff:4400,
@@ -561,6 +629,82 @@ const sfx = ({
   pan(x) {return math.clamp(x/12,-.8,.8);},
   gain:{floor:.0001,peakDelay:.006,tail:.03},
 });
+
+// All arrangements return the same synthesis events. The transport never branches on track IDs.
+music.wrapIndex = (index,count)=>(index%count+count)%count;
+music.event = function(voice,frequency,duration,options={}) {
+  return {voice:typeof voice==='string'?this.synths[voice]:voice,frequency,duration,gain:null,
+    offset:0,pan:0,echo:false,...options};
+};
+music.noiseEvent = function({duration,cutoff,gain},filterType='lowpass') {
+  return this.event({...this.voiceDefaults,source:'noise',copies:1,attack:0,holdFraction:0,
+    gain,cutoff,filterType,noiseOffsetFraction:this.synthesis.noiseOffsetFraction},cutoff,duration);
+};
+music.arrangers = {
+  scale(id,step,bpm) {
+    return [...music.scaleNotes(id,step,bpm).map(note=>music.event(note.voice,music.frequency(note.note),note.duration,
+      {gain:music.synths[note.voice].gain*note.level,offset:note.offset,pan:note.pan})),
+      ...music.scaleDrums(id,step).map(id=>{
+        const d=sfx.drums[id];
+        const voice={...music.voiceDefaults,source:d.noise?'noise':'tone',wave:'sine',copies:1,detune:0,
+          gain:d.gain,attack:sfx.gain.peakDelay,holdFraction:0,cutoff:d.frequency,filterType:d.filter||'lowpass'};
+        return music.event(voice,d.frequency,d.duration,{endFrequency:d.to??d.frequency});
+      })];
+  },
+  sequence(id,step,bpm) {
+    const t=music.tracks[id],c=music.sequence,pace=music.stepSeconds(bpm),events=[];
+    step%=t.stepsPerMeasure*t.measures;
+    const beat=step%t.stepsPerMeasure,root=t.roots[Math.floor(step/t.stepsPerMeasure)%t.roots.length];
+    const add=(voice,note,duration,gain,echo)=>events.push(music.event(voice,music.frequency(note),duration,{gain,echo}));
+    const bass=t.bass[step%t.bass.length],lead=t.melody[step%t.melody.length];
+    if(bass!==null)add(t.bassVoice,c.bassMidi+root+bass,pace*c.bassDuration,t.bassGain,t.bassEcho);
+    if(lead!==null)add(t.leadVoice,c.melodyMidi+root+lead,pace*c.leadDuration,t.leadGain,t.leadEcho);
+    if(beat%c.chordSteps===0)for(const interval of t.chords)add(t.chordVoice,c.chordMidi+root+interval,pace*c.chordDuration,t.chordGain,t.chordEcho);
+    if(t.kicks.includes(beat))events.push(music.event('stardogKick',c.kickFrequency,c.kickDuration,{endFrequency:c.kickEndFrequency}));
+    if(t.snares.includes(beat))events.push(music.noiseEvent({duration:c.snareDuration,cutoff:c.snareCutoff,gain:c.snareGain},'highpass'));
+    if(t.hats.includes(beat))events.push(music.noiseEvent({duration:c.hatDuration,cutoff:c.hatCutoff,gain:c.hatGain},'highpass'));
+    return events;
+  },
+  legacy(id,step,bpm) {
+    const t=music.tracks[id],c=music.legacy,pace=music.stepSeconds(bpm),events=[];
+    step%=t.stepsPerMeasure*t.measures;
+    const measure=Math.floor(step/t.stepsPerMeasure),part=step%t.stepsPerMeasure;
+    const root=c.roots[measure%c.roots.length],hz=music.frequency(c.bassMidi+root+c.scale[c.bass[step%c.bass.length]]);
+    const add=(voice,frequency,duration,options={})=>events.push(music.event(voice,frequency,duration,options));
+    add('stardogBass',hz,pace*c.bassDuration,{echo:t.slow});
+    if(step%c.kickEvery===0){
+      add('stardogKick',c.kick.frequency,c.kick.duration,{endFrequency:c.kick.to});
+      events.push(music.noiseEvent(c.kickNoise));
+    }
+    if(!t.slow&&step%c.snareEvery===c.snareStep){
+      events.push(music.noiseEvent(c.snare,'highpass'));
+      add('stardogMetal',c.metal.frequency,c.metal.duration,{gain:c.metal.gain,endFrequency:c.metal.to});
+    }
+    if(!t.slow&&step%c.hatEvery===c.hatStep)events.push(music.noiseEvent(c.hat,'highpass'));
+    const mood=t.slow?'slow':'active';
+    if(part===0)for(const interval of c.chords)add(t.slow?'stardogPad':'stardogGuitar',
+      c.chordFrequency*music.pitch.octaveRatio**((root+interval)/music.pitch.semitonesPerOctave),pace*c.chordDuration[mood],{gain:c.chordGain[mood],echo:true});
+    if(!t.slow&&step%c.offbeatEvery===c.offbeatStep)add('stardogGuitar',hz*c.offbeat.octaves,
+      pace*c.offbeat.duration,{gain:c.offbeat.gain});
+    if(!t.slow&&!t.title||part>c.titleLeadAfterStep){
+      const flare=measure===t.measures-1?c.flareMultiplier:1;
+      add('stardogLead',hz*(step%c.lead.parity?c.lead.oddOctaves:c.lead.evenOctaves),
+        pace*c.lead.duration*flare,{gain:c.lead.gain,echo:true});
+    }
+    if(t.slow&&step%c.padEvery===0)add('stardogPad',hz*c.pad.octaves,pace*c.pad.duration,{gain:c.pad.gain,echo:true});
+    return events;
+  },
+  fanfare(id,step) {
+    if(step!==music.initialStep)return [];
+    const t=music.tracks[id],events=[];
+    for(const [index,interval] of t.intervals.entries())events.push(music.event(t.leadVoice,
+      t.baseFrequency*music.pitch.octaveRatio**(interval/music.pitch.semitonesPerOctave),t.duration,{offset:index*t.noteSpacing,gain:t.gain,echo:true}));
+    for(const interval of t.chords)events.push(music.event(t.chordVoice,
+      t.baseFrequency*music.pitch.octaveRatio**(interval/music.pitch.semitonesPerOctave),t.chordDuration,{gain:t.gain}));
+    return events;
+  },
+};
+music.events = function(id,step,bpm) {return this.arrangers[this.tracks[id].arranger](id,step,bpm);};
 
 const renderMath = ({
   wallOpacity:.012,lineOpacity:.055,starOpacity:.48,

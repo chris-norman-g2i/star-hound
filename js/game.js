@@ -34,7 +34,7 @@ function init(){
       if(state!==before)sound.voice('respawn',state);
       else if(state.mode==='defeat'&&view.lastMode!=='defeat')sound.voice('defeat',state);
     }
-    sound.update(state,dt);view.update(state,titleTime);view.checkpoint(checkpoints);
+    sound.update(state,dt);view.music(sound);view.update(state,titleTime);view.checkpoint(checkpoints);
     scene.render(state,state.mode==='paused'?0:dt,titleTime,systems.entities,systems.bullets);
   }
   async function pause(){
@@ -68,6 +68,10 @@ function init(){
   view.audio(sound);
   view.nodes['audio-button'].addEventListener('click',toggleAudio);view.nodes['pause-button'].addEventListener('click',pause);
   view.nodes['flight-manual'].addEventListener('click',()=>view.showManual());view.nodes['close-manual'].addEventListener('click',()=>view.hideManual());
+  // Retry the startup playback request if the browser requires a user gesture.
+  const unlockAudio=()=>{if(!sound.enabled)sound.unlock();};
+  window.addEventListener('pointerdown',unlockAudio,{capture:true});
+  window.addEventListener('keydown',event=>{if(!event.repeat)unlockAudio();},{capture:true});
   window.addEventListener('keydown',event=>{
     if(event.code==='F2'&&view.nodes['tuning-dialog'].open){controls.handleKey(event);return;}
     if(view.isDialogOpen())return;
@@ -77,7 +81,8 @@ function init(){
     if(event.target.tagName==='BUTTON'&&(event.code==='Space'||event.code==='Enter'))return;
     if(ui.keys.includes(event.code)&&state.mode==='playing'){event.preventDefault();keys.add(event.code);}
     if(event.repeat)return;
-    if(event.code==='Escape'||event.code==='KeyP')pause();
+    if(event.code==='Escape')pause();
+    if(namespace.settings.music.debug.enabled&&event.code===namespace.settings.music.debug.key){event.preventDefault();sound.previewNext(state);}
     if(event.code==='KeyM')nextTrack();
     if(event.code==='Enter'&&state.mode==='title')requestNew();
   });
@@ -86,6 +91,7 @@ function init(){
   document.addEventListener('visibilitychange',()=>{if(document.hidden&&(state.mode==='playing'||state.mode==='crashing'))pause();});
   window.addEventListener('pagehide',()=>sound.dispose());
   update();
+  sound.unlock();
 }
 namespace.Game=Object.freeze({init});
 })(window.Starhound);

@@ -8,13 +8,11 @@ const { music, sfx, voices } = namespace.settings;
 class SoundEngine {
   constructor() {
     this.context = null; this.enabled = false; this.paused = false;
-    this.track = null; this.step = 0; this.nextTime = 0; this.bpm = music.tracks.intro.bpm;
-    this.musicBus = null; this.lastState = null; this.positions = {};
+    this.music=null;this.director=new namespace.MusicDirector();this.lastState=null;
     this.muted=false;this.volumes={music:1,effects:1,voice:1};
     try{const preferences=JSON.parse(window.localStorage.getItem('starhound.audio.v1'));
       if(preferences){this.muted=preferences.muted===true;for(const channel of Object.keys(this.volumes))if(Number.isFinite(preferences[channel]))this.volumes[channel]=Math.max(0,Math.min(1,preferences[channel]));}
     }catch{}
-    this.gameplayIndex=0;this.lastSector=null;this.skipPowerupMusic=false;
     this.voiceActive=false;this.voices=new namespace.VoiceEngine(active=>{
       this.voiceActive=active;
       if(this.context)this.applyMix();
@@ -23,8 +21,13 @@ class SoundEngine {
   async unlock() {
     if (!this.context) this.initialize();
     if (!this.context) return false;
-    if(!this.paused) await this.context.resume(); this.enabled = true;
-    this.applyMix();
+    this.syncMusic();
+    if(!this.paused||this.director.request?.preview){
+      try{await this.context.resume();}catch{return false;}
+      if(this.context.state!=='running')return false;
+    }
+    this.enabled=true;this.applyMix();this.syncMusic();
+    this.music.schedule();
     return true;
   }
   initialize() {
@@ -53,7 +56,7 @@ class SoundEngine {
     this.engineTone.connect(this.engineFilter);this.engineNoise.connect(this.engineWind);this.engineWind.connect(this.engineFilter);
     this.engineFilter.connect(this.engineAmp);this.engineAmp.connect(this.fxBus);
     this.engineTone.start();this.engineNoise.start();
-    this.timer = window.setInterval(() => this.schedule(),music.schedulerMs);
+    this.music=new namespace.MusicTransport(ctx,{ambient:this.musicSpace,direct:this.musicOutput},this.noise);
   }
   createSpace(output,impulse,echo=false){
     const ctx=this.context,input=ctx.createGain();input.connect(output);
@@ -83,36 +86,46 @@ class SoundEngine {
   }
   applyMix(){
     const time=this.context.currentTime;
-    this.master.gain.setTargetAtTime(this.muted?0:music.master,time,.025);
-    this.fxBus.gain.setTargetAtTime(music.sfxGain*this.volumes.effects*(this.voiceActive?voices.effectsDuck:1),time,.025);
-    const crashing=this.lastState?.mode==='crashing'||this.lastState?.mode==='paused'&&this.lastState.resumeMode==='crashing';
-    this.musicOutput.gain.setTargetAtTime(crashing?0:this.volumes.music,time,.025);
-    if(this.musicBus)this.musicBus.gain.setTargetAtTime(music.musicGain*(this.voiceActive?voices.musicDuck:1),time,music.fade);
+    this.master.gain.setTargetAtTime(this.muted?0:music.master,time,music.mixSmoothing);
+    this.fxBus.gain.setTargetAtTime(music.sfxGain*this.volumes.effects*(this.voiceActive?voices.effectsDuck:1),time,music.mixSmoothing);
+    this.musicOutput.gain.setTargetAtTime(this.director.request?.id===null?0:this.volumes.music,time,music.mixSmoothing);
+    this.music?.setDuck(this.voiceActive?voices.musicDuck:1);
     this.voices.setEnabled(this.enabled&&!this.muted&&this.volumes.voice>0);
   }
-  beginFlight(state){
-    this.gameplayIndex=state.sector%4;this.lastSector=state.sector;this.skipPowerupMusic=false;
-    if(this.context){const id=music.trackFor(state,this.gameplayIndex);this.bpm=music.tempo(id,state);this.setTrack(id,{restart:true,immediate:true});}
+  get track(){return this.music?.track??null;}
+  get step(){return this.music?.step??music.initialStep;}
+  get gameplayIndex(){return this.director.gameplayIndex;}
+  get musicStatus(){
+    const request=this.director.request,id=this.music?this.music.track:request?.id;
+    return {id,name:music.tracks[id]?.name||'Silence',bpm:music.tracks[id]?.bpm?this.music?.bpm??request?.bpm:null,
+      preview:request?.preview||false,locked:!this.enabled,muted:this.muted||this.volumes.music===0,
+      paused:this.paused&&!request?.preview,finished:this.music?.finished||false};
   }
-  nextTrack(state){
-    if(state.mode!=='playing')return;
-    this.gameplayIndex=(this.gameplayIndex+1)%4;this.lastSector=state.sector;
-    this.skipPowerupMusic=state.invincible>0;
-    if(this.context){const id=`game${this.gameplayIndex}`;this.bpm=music.tempo(id,state);this.setTrack(id,{restart:true,immediate:true});}
+  syncMusic(){
+    if(!this.music||!this.director.request)return;
+    this.music.paused=this.paused&&!this.director.request.preview;
+    this.music.select(this.director.request);
+  }
+  beginFlight(state){
+    this.lastState=state;this.director.beginFlight(state);this.syncMusic();
+  }
+  nextTrack(state){this.director.nextGameplay(state);this.syncMusic();}
+  async previewNext(state){
+    this.director.nextPreview(state);await this.unlock();this.syncMusic();this.music?.schedule();
   }
   crash(){
     this.clearVoices();
     if(this.context){
       const gain=this.musicOutput.gain,time=this.context.currentTime;
       gain.cancelScheduledValues(time);gain.setValueAtTime(0,time);
-      this.setTrack(null,{immediate:true});
+      this.music.select({id:null,bpm:null,revision:this.director.revision});
     }
     this.play('crashExplosion');
   }
   voice(event,state) {this.voices.event(event,state);}
   clearVoices() {this.voices.clear();}
   update(state,dt=.025) {
-    this.lastState = state;
+    this.lastState=state;this.director.update(state);
     this.voices.update(state,dt);
     if(!this.context) return;
     const engine=sfx.engineState(state),time=this.context.currentTime;
@@ -120,60 +133,7 @@ class SoundEngine {
     this.engineTone.frequency.setTargetAtTime(engine.frequency,time,sfx.engine.smoothing);
     this.engineFilter.frequency.setTargetAtTime(engine.cutoff,time,sfx.engine.smoothing);
     this.engineAmp.gain.setTargetAtTime(engine.gain,time,sfx.engine.smoothing);
-    if(state.mode==='playing'){
-      if(this.lastSector===null)this.gameplayIndex=state.sector%4;
-      else if(state.sector!==this.lastSector)this.gameplayIndex=((this.gameplayIndex+state.sector-this.lastSector)%4+4)%4;
-      this.lastSector=state.sector;
-    }else if(state.mode==='title'){this.lastSector=null;this.gameplayIndex=0;}
-    if(state.invincible<=0)this.skipPowerupMusic=false;
-    const effective=state.mode==='paused'?{...state,mode:state.resumeMode||'playing'}:state;
-    const id=music.trackFor(this.skipPowerupMusic?{...effective,invincible:0}:effective,this.gameplayIndex);
-    if(id)this.bpm=music.tempo(id,state);
-    if(id!==this.track)this.setTrack(id,{immediate:id===null});
-    const label=document.getElementById('track-name');if(label)label.textContent=id?music.tracks[id].name:'';
-  }
-  setTrack(id,{restart=false,immediate=false}={}){
-    const ctx=this.context;
-    if(this.track)this.positions[this.track]=this.step;
-    if(this.musicBus){
-      const old=this.musicBus;old.gain.cancelScheduledValues(ctx.currentTime);
-      if(immediate){old.gain.setValueAtTime(0,ctx.currentTime);old.disconnect();}
-      else{old.gain.setTargetAtTime(0,ctx.currentTime,music.fade);window.setTimeout(()=>old.disconnect(),music.retireBusMs);}
-    }
-    this.track=id;this.musicBus=null;if(!id)return;
-    this.musicBus=ctx.createGain();this.musicBus.gain.value=immediate?music.musicGain:0;
-    this.musicBus.connect(this.musicSpace);
-    this.musicBus.gain.setTargetAtTime(music.musicGain*(this.voiceActive?voices.musicDuck:1),ctx.currentTime,immediate?.01:music.fade);
-    this.step=restart?0:music.transitionStep(id,this.step,this.positions);
-    this.nextTime=music.offset(ctx.currentTime,music.startOffset);
-  }
-  schedule() {
-    if(!this.context || this.context.state!=='running' || this.paused || !this.track) return;
-    const ctx = this.context;
-    // Re-anchor after background throttling instead of scheduling a burst of late notes.
-    if(this.nextTime < ctx.currentTime) this.nextTime = music.offset(ctx.currentTime,music.lateOffset);
-    while(this.nextTime < music.offset(ctx.currentTime,music.lookAhead)) {
-      for(const note of music.notes(this.track,this.step,this.bpm))
-        this.note(note,music.offset(this.nextTime,note.offset),this.musicBus);
-      for(const drum of music.drums(this.track,this.step))this.drum(drum,this.nextTime,this.musicBus);
-      this.nextTime = music.offset(this.nextTime,music.stepSeconds(this.bpm));
-      this.step++;
-    }
-  }
-  note(note,time,bus) {
-    const ctx=this.context, synth=music.synths[note.voice], env=music.envelope(time,note.duration,synth,note.level);
-    const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=synth.cutoff;filter.Q.value=music.filterQ;
-    const amp=ctx.createGain();amp.gain.setValueAtTime(sfx.gain.floor,time);
-    amp.gain.linearRampToValueAtTime(env.peak,env.attack);
-    amp.gain.setValueAtTime(env.peak,env.hold);amp.gain.exponentialRampToValueAtTime(sfx.gain.floor,env.end);
-    const pan=ctx.createStereoPanner();pan.pan.value=note.pan;
-    filter.connect(amp);amp.connect(pan);pan.connect(bus);
-    const oscillators=[];
-    for(const i of [0,1]) {
-      const osc=ctx.createOscillator();osc.type=synth.wave;osc.frequency.value=music.frequency(note.note);
-      osc.detune.value=music.detune(i,synth.detune);osc.connect(filter);osc.start(time);osc.stop(music.offset(env.end,sfx.gain.tail));oscillators.push(osc);
-    }
-    oscillators[0].onended=()=>{for(const osc of oscillators)osc.disconnect();filter.disconnect();amp.disconnect();pan.disconnect();};
+    this.syncMusic();
   }
   drum(id,time,bus,panValue=0) {
     const ctx=this.context,cfg=sfx.drums[id];if(!cfg)return;
@@ -223,9 +183,9 @@ class SoundEngine {
     noise.start(time);noise.stop(time+cfg.duration);
     noise.onended=()=>{noise.disconnect();filter.disconnect();gain.disconnect();pan.disconnect();};
   }
-  async pause() {this.paused=true;this.voices.pause();if(this.context?.state==='running')await this.context.suspend();}
-  async resume() {this.paused=false;this.voices.resume();if(this.context){await this.context.resume();this.nextTime=music.offset(this.context.currentTime,music.startOffset);}}
-  dispose() {this.voices.dispose();clearInterval(this.timer);this.context?.close();}
+  async pause() {this.paused=true;this.voices.pause();if(this.music)this.music.paused=true;if(this.context?.state==='running')await this.context.suspend();}
+  async resume() {this.paused=false;this.voices.resume();if(this.context){await this.context.resume();this.music.paused=false;this.music.reanchor();}}
+  dispose() {this.voices.dispose();this.music?.dispose();this.context?.close();}
 }
 
 namespace.SoundEngine = SoundEngine;

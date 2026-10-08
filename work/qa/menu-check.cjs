@@ -11,10 +11,17 @@ const document={getElementById:id=>{assert(nodes[id],id);return nodes[id];},crea
 let frame;const disk=new Map(),handlers={};const window={innerWidth:1280,innerHeight:800,devicePixelRatio:1,localStorage:{getItem:k=>disk.get(k),setItem:(k,v)=>disk.set(k,v),removeItem:k=>disk.delete(k)},addEventListener:(k,f)=>(handlers[k]??=[]).push(f)};
 const ctx=vm.createContext({window,document,console,navigator:{},requestAnimationFrame:f=>{frame=f},Math,JSON,Number,Float32Array,Uint8Array});
 function load(f){vm.runInContext(fs.readFileSync('js/'+f+'.js','utf8'),ctx,{filename:f});}
-load('settings');const ns=window.Starhound;let rendered;
+load('settings');load('music');const ns=window.Starhound;let rendered;
 ns.THREE={Clock:class{getDelta(){return .025;}}};ns.FlightScene=class{clear(){}burst(){}applyTuning(){}resize(){}render(s){rendered=s;}};
-ns.SoundEngine=class{constructor(){this.enabled=false;}async resume(){}async pause(){}async unlock(){this.enabled=true;}async toggle(){this.enabled=!this.enabled;}update(){}play(){}dispose(){}};
-for(const f of ['systems','hangar','interface','checkpoints','controls','game'])load(f);ns.Game.init();assert.equal(rendered.mode,'title');assert.equal(nodes['wave-dots'].children.length,4);assert.equal(nodes['checkpoint-resume'].disabled,true);
+ns.SoundEngine=class{
+ constructor(){this.enabled=false;this.unlockCalls=0;this.muted=false;this.volumes={music:1,effects:1,voice:1};this.director=new ns.MusicDirector();window.testSound=this;}
+ async resume(){}async pause(){}async unlock(){this.unlockCalls++;this.enabled=true;}async toggle(){this.muted=!this.muted;}
+ update(s){this.director.update(s);}beginFlight(s){this.director.beginFlight(s);}nextTrack(s){this.director.nextGameplay(s);}
+ async previewNext(s){this.director.nextPreview(s);await this.unlock();}setVolume(channel,value){this.volumes[channel]=value;}
+ get musicStatus(){const r=this.director.request;return {name:ns.settings.music.tracks[r?.id]?.name||'Silence',bpm:r?.bpm,preview:r?.preview,locked:!this.enabled};}
+ play(){}voice(){}dispose(){}
+};
+for(const f of ['systems','hangar','interface','checkpoints','controls','game'])load(f);ns.Game.init();assert.equal(window.testSound.unlockCalls,1);assert.equal(rendered.mode,'title');assert.equal(nodes['wave-dots'].children.length,4);assert.equal(nodes['checkpoint-resume'].disabled,true);
 const key=(code,target=document.body)=>{for(const f of handlers.keydown)f({code,target,repeat:false,preventDefault(){}});};
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{
@@ -23,8 +30,8 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
  nodes.launch.emit('click');await flush();frame();assert.equal(rendered.mode,'playing');assert.equal(rendered.lives,3);assert.equal(nodes['checkpoint-resume'].disabled,false);
  const before=rendered.player.x;key('ArrowRight');for(let i=0;i<20;i++)frame();assert(rendered.player.x>before);for(const f of handlers.keyup)f({code:'ArrowRight'});
  key('Space');for(let i=0;i<30;i++)frame();assert(rendered.weapon.shots>0);for(const f of handlers.keyup)f({code:'Space'});
- key('KeyP');await flush();frame();assert.equal(rendered.mode,'paused');nodes.home.emit('click');await flush();frame();assert.equal(rendered.mode,'title');
- nodes.launch.emit('click');assert(nodes['new-run-dialog'].open);nodes['cancel-new'].emit('click');assert(!nodes['new-run-dialog'].open);assert(disk.size===1);
+ key('KeyP');await flush();frame();assert.equal(rendered.mode,'playing');assert(nodes['music-debug-status'].textContent.includes('PREVIEW'));key('Escape');await flush();frame();assert.equal(rendered.mode,'paused');nodes.home.emit('click');await flush();frame();assert.equal(rendered.mode,'title');
+ nodes.launch.emit('click');assert(nodes['new-run-dialog'].open);nodes['new-run-dialog'].close();assert(!nodes['new-run-dialog'].open);assert(disk.size===1);
  nodes['checkpoint-resume'].emit('click');await flush();frame();assert.equal(rendered.mode,'playing');assert.equal(rendered.distance<3,true);
  key('BracketRight');frame();assert.equal(rendered.wave,2);key('F2');await flush();frame();assert(nodes['tuning-dialog'].open);assert.equal(rendered.mode,'paused');
  const waveInput=nodes['tuning-fields'].children[0].children[0];waveInput.value='1250';nodes['seed-input'].value='TEST-MENU';nodes['apply-tuning'].emit('click');assert.equal(ns.settings.race.waveLength,1250);assert.equal(rendered.distance,1250);
