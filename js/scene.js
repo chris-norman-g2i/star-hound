@@ -1,7 +1,7 @@
 (function (namespace) {
 'use strict';
 const THREE = namespace.THREE;
-const { assets, gfx, tunnel, weapon, pickups, flight, math, tuning, renderMath } = namespace.settings;
+const { assets, gfx, tunnel, weapon, pickups, flight, math, tuning, renderMath, ui } = namespace.settings;
 
 class FlightScene {
   constructor(canvas,route) {
@@ -22,6 +22,7 @@ class FlightScene {
     this.speedEffects=new namespace.FlightSpeedEffects(this.renderer,this.camera);
     this.isolateShipMaterials(this.ship);
     this.reticle=document.getElementById('reticle');this.aimMarkers=[];this.aimPoint=new THREE.Vector3();
+    this.hudCenter=new THREE.Vector3();this.hudEdge=new THREE.Vector3();this.hudRight=new THREE.Vector3();
     this.tier=-1;
     this.resize();
   }
@@ -110,6 +111,14 @@ class FlightScene {
     }
     document.getElementById('impact-flash').style.opacity=renderMath.impactFlash(s);
     document.getElementById('speed-glow').style.opacity=renderMath.speedGlow(s);
+  }
+  playerHudAnchor() {
+    this.hudCenter.copy(this.ship.position).project(this.camera);
+    this.hudRight.setFromMatrixColumn(this.camera.matrixWorld,0);
+    this.hudEdge.copy(this.ship.position).addScaledVector(this.hudRight,ui.hud.heat.radiusWorld).project(this.camera);
+    const center=renderMath.reticlePosition(this.hudCenter,window.innerWidth,window.innerHeight);
+    const edge=renderMath.reticlePosition(this.hudEdge,window.innerWidth,window.innerHeight);
+    return {...center,diameter:Math.max(ui.hud.heat.minDiameterPx,Math.abs(edge.x-center.x)*2)};
   }
   makeEntity(e) {
     let mesh;

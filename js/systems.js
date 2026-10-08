@@ -20,13 +20,15 @@ class FlightSystems {
     }
   }
   crossCheckpoint(s){
-    race.announce(s);s.checkpointWave=s.wave;s.checkpointCelebration=2.4;
+    s.checkpointWave=s.wave;s.checkpointCelebration=2.4;
     s.pendingCheckpoint=checkpoint.capture(s);
     this.scene.celebrate(s);this.sound.play('checkpoint');this.sound.voice('checkpoint',s);
   }
   spawn(s){
     while(encounters.canSpawn(s,this.entities.length))this.entities.push(...encounters.make(s).filter(e=>this.route.allowsEncounter(e)));
-    while(pickups.canSpawn(s))this.entities.push(pickups.scheduled(s));
+    while(pickups.canSpawn(s)){
+      const pickup=pickups.scheduled(s);if(pickup)this.entities.push(pickup);
+    }
   }
   shoot(s,keys){
     if(!keys.has('Space')||!weapon.canFire(s.weapon))return;
@@ -52,7 +54,7 @@ class FlightSystems {
         bullet.dead=true;
         if(e.type!=='barrier'&&weapon.impact(e)){
           e.dead=true;encounters.score(s,e);this.destroy(e);
-          if(e.type==='enemy'){dropped.push(pickups.drop(e,s));this.sound.voice('enemyKill',s);}
+          if(e.type==='enemy'){const pickup=pickups.drop(e,s);if(pickup)dropped.push(pickup);this.sound.voice('enemyKill',s);}
         }
         break;
       }

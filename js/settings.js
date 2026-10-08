@@ -3,6 +3,17 @@
 'use strict';
 overrides = overrides || {};
 const namespace = global.Starhound = global.Starhound || {};
+// Compatibility data belongs to the old schema, never to the live difficulty curve.
+const legacyTuning = {
+  rampSpan:15,
+  minimumObstacleSpacing:38,
+  checkpointVersions:{original:2,previous:3},
+  settingsVersion:1,
+  redesignRatios:{'weapon.baseInterval':.5,'encounters.easyInterval':210/230,'encounters.hardInterval':82/95},
+  requiredRules:['race.waveLength','race.startSpeed','race.speedPerWave','race.endlessAcceleration',
+    'race.recoveryLength','race.chargeDrain','race.boostDrain','encounters.easyInterval','encounters.hardInterval',
+    'weapon.baseInterval','weapon.heatPerVolley','weapon.coolingPerSecond','weapon.extraCooldown','pickups.interval','gfx.fogDensity'],
+};
 
 /** All authored constants, procedural formulas and tuning live here.
  * Runtime scripts own resources; this module owns their numerical behavior.
@@ -44,43 +55,57 @@ const tunnel = ({
   },
 });
 
+// One continuous distance curve drives every gameplay difficulty contribution.
+const difficulty = {
+  distanceScale:33000,
+  growth:1,
+  curve:.9,
+  progress(distance) {return Math.pow(Math.max(0,distance)/this.distanceScale*this.growth,this.curve);},
+};
+
+const hull = {
+  maxIntegrity:100,obstacleDamageFraction:.6,hitImmunitySeconds:1.4,
+  get obstacleDamage(){return this.maxIntegrity*this.obstacleDamageFraction;},
+};
+
 const race = ({
-  targetWaves:16, wavesPerSector:4, waveLength:1100, startLives:3, recoveryLength:210,
-  startSpeed:56, speedPerWave:3.5, endlessAcceleration:8, endlessExponent:.85, respawnProtection:3,
+  wavesPerSector:4, waveLength:1100, startLives:3, recoveryLength:210,
+  startSpeed:56,
+  speedGrowth:15,
+  maxSpeed:500,
+  respawnProtection:3,
   chargeDrain:1.2, boostDrain:15, boostMultiplier:1.48, turboMultiplier:1.4,
   names:['THE DEPARTURE','COPPER CURRENT','AMBER DRIFT','ION GARDEN','MIDNIGHT CIRCUIT','SOLAR SWITCHBACK','GLASS HORIZON','AFTERBURN ALLEY','THE BLACK REACH','DEEP SPACE'],
   colors:[0x73d7d0,0xffa571,0xffcd79,0x8eecab,0xb39cf8,0xff997c,0x7bcaeb,0xf593bd,0x9ab4d1,0xffdc96],
   waveAt(d) { return Math.floor(d / this.waveLength)+1; },
   sectorAt(wave) { return Math.floor((wave-1)/this.wavesPerSector); },
-  waveInSector(wave) { return (wave-1)%this.wavesPerSector; },
   sectorName(sector) { return this.names[sector%this.names.length]; },
   sectorColor(sector) { return this.colors[sector%this.colors.length]; },
   checkpointDistance(wave) { return (wave-1)*this.waveLength; },
-  baseSpeed(wave) { return this.startSpeed+(Math.min(wave,this.targetWaves)-1)*this.speedPerWave+Math.pow(Math.max(0,wave-this.targetWaves),this.endlessExponent)*this.endlessAcceleration; },
+  cruiseSpeed(distance) {return Math.min(this.maxSpeed,this.startSpeed+this.speedGrowth*difficulty.progress(distance));},
   progress(d) { return (d % this.waveLength)/this.waveLength; },
   recovery(d) { return d % this.waveLength < this.recoveryLength; },
   encounterStart(wave) { return this.checkpointDistance(wave)+this.recoveryLength+100; },
-  pickupStart(wave) { return this.checkpointDistance(wave)+55; },
+  pickupStart(wave) {return pickups.startDistance(this.checkpointDistance(wave));},
   advance(s,dt,keys) {
     s.elapsed+=dt;s.previousDistance=s.distance;
-    for(const key of ['invincible','protection','turbo','hurt','noticeTime','toastTime','checkpointCelebration'])s[key]=math.decrement(s[key],dt);
+    for(const key of ['invincible','protection','turbo','hurt','toastTime','checkpointCelebration'])s[key]=math.decrement(s[key],dt);
     propulsion.advance(s,dt,keys);
     s.distance+=s.speed*dt;
     s.wave=this.waveAt(s.distance);s.sector=this.sectorAt(s.wave);s.bestWave=Math.max(s.bestWave,s.wave);
   },
   state(seed='GOODBOY') { return {mode:'title',seed,distance:0,previousDistance:0,elapsed:0,wave:1,bestWave:1,sector:0,
-    speed:this.startSpeed,charge:45,hull:100,lives:this.startLives,invincible:0,protection:0,turbo:0,hurt:0,boosting:false,
-    score:0,kills:0,pickups:0,nextSpawn:this.encounterStart(1),nextPickup:this.pickupStart(1),spawnIndex:0,
-    motion:propulsion.state(),crashTime:0,checkpointCelebration:0,checkpointWave:1,notice:'WAVE 01 · CLEARED FOR TAKEOFF',noticeTime:3,toast:'',toastTime:0,
+    speed:this.startSpeed,charge:45,hull:hull.maxIntegrity,lives:this.startLives,invincible:0,protection:0,turbo:0,hurt:0,boosting:false,
+    score:0,kills:0,pickups:0,nextSpawn:this.encounterStart(1),nextPickup:this.pickupStart(1),pickupDistances:[],
+    motion:propulsion.state(),crashTime:0,checkpointCelebration:0,checkpointWave:1,toast:'',toastTime:0,
     player:{x:0,y:0,vx:0,vy:0},weapon:weapon.state()}; },
-  announce(s) { s.notice=`WAVE ${math.pad(s.wave)} · CHECKPOINT · BONUS STRETCH`;s.noticeTime=2.4; },
   jump(s,wave) {
     wave=Math.max(1,Math.floor(wave));s.wave=wave;s.sector=this.sectorAt(wave);s.bestWave=Math.max(s.bestWave,wave);
-    s.distance=this.checkpointDistance(wave);s.previousDistance=s.distance;s.speed=this.baseSpeed(wave);
-    s.nextSpawn=this.encounterStart(wave);s.nextPickup=this.pickupStart(wave);s.spawnIndex=(wave-1)*64;
-    s.hull=100;s.protection=this.respawnProtection;s.invincible=0;s.turbo=0;s.hurt=0;s.boosting=false;
+    s.distance=this.checkpointDistance(wave);s.previousDistance=s.distance;s.speed=this.cruiseSpeed(s.distance);
+    s.nextSpawn=this.encounterStart(wave);s.nextPickup=this.pickupStart(wave);s.pickupDistances=[];
+    s.hull=hull.maxIntegrity;s.protection=this.respawnProtection;s.invincible=0;s.turbo=0;s.hurt=0;s.boosting=false;
     s.motion=propulsion.state();s.crashTime=0;s.checkpointCelebration=0;
-    s.player={x:0,y:0,vx:0,vy:0};weapon.resetHeat(s.weapon);s.mode='playing';this.announce(s);
+    s.player={x:0,y:0,vx:0,vy:0};weapon.resetHeat(s.weapon);s.mode='playing';
   },
 });
 
@@ -92,7 +117,7 @@ const propulsion = {
   recoverySeconds:1.2,enemyBonusRetention:.67,enemySpeedRetention:.55,
   state() {return {boostBonus:0,turboBonus:0,ringBonus:0,boostBlocked:false,recovery:null};},
   bonus(s) {return s.charge*.0018+s.motion.turboBonus+s.motion.boostBonus+s.motion.ringBonus;},
-  target(s) {return race.baseSpeed(s.wave)*(1+this.bonus(s));},
+  target(s) {return race.cruiseSpeed(s.distance)*(1+this.bonus(s));},
   turbo(s) {
     s.turbo=pickups.duration.turbo;
     s.motion.turboBonus=(race.turboMultiplier-1)*(1+s.charge*.0018+s.motion.boostBonus+s.motion.ringBonus);
@@ -127,7 +152,7 @@ const propulsion = {
     if(m.recovery){
       m.recovery.elapsed+=dt;
       const t=m.recovery.elapsed>=this.recoverySeconds-1e-9?1:m.recovery.elapsed/this.recoverySeconds;
-      const target=m.recovery.cruiseOnly?race.baseSpeed(s.wave):this.target(s);
+      const target=m.recovery.cruiseOnly?race.cruiseSpeed(s.distance):this.target(s);
       s.speed=math.mix(m.recovery.from,target,t*t);
       if(t===1)m.recovery=null;
     }else s.speed=math.damp(s.speed,this.target(s),2,dt);
@@ -136,28 +161,29 @@ const propulsion = {
 
 const crash = {
   duration:2.6,
-  begin(s) {s.mode='crashing';s.crashTime=0;s.lives--;s.speed=0;s.boosting=false;s.noticeTime=0;s.toastTime=0;s.invincible=0;},
+  begin(s) {s.mode='crashing';s.crashTime=0;s.lives--;s.speed=0;s.boosting=false;s.toastTime=0;s.invincible=0;},
   advance(s,dt) {s.crashTime+=dt;s.elapsed+=dt;},
   complete(s) {return s.mode==='crashing'&&s.crashTime>=this.duration-1e-9;},
 };
 
 // Automatic wave checkpoints only; no manual save slots.
 const checkpoint = {
-  key:'starhound.wave-checkpoint.v3', version:3,
+  key:'starhound.wave-checkpoint.v3', version:4,
   legacyKey:'starhound.wave-checkpoint.v2',
   migrate(saved) {
-    if(!saved||saved.version!==2||!saved.rules)return null;
+    if(!saved||!Object.values(legacyTuning.checkpointVersions).includes(saved.version)||!saved.rules)return null;
     const rules={...saved.rules};
-    for(const [key,ratio] of [['weapon.baseInterval',.5],['encounters.easyInterval',210/230],['encounters.hardInterval',82/95]])
-      rules[key]*=ratio;
-    for(const [path,,min,max] of tuning.fields)if(Number.isFinite(rules[path]))rules[path]=math.clamp(rules[path],min,max);
-    const updated={...saved,version:this.version,rules};return this.valid(updated)?updated:null;
+    if(saved.version===legacyTuning.checkpointVersions.original)
+      for(const [key,ratio] of Object.entries(legacyTuning.redesignRatios))rules[key]*=ratio;
+    const migrated=tuning.migrateValues(rules);
+    if(!migrated)return null;
+    const updated={...saved,version:this.version,rules:migrated};return this.valid(updated)?updated:null;
   },
   capture(s) {
     return {version:this.version,seed:s.seed,wave:s.wave,lives:s.lives,charge:s.charge,
       elapsed:s.elapsed,bestWave:s.bestWave,score:s.score,kills:s.kills,pickups:s.pickups,
       tier:s.weapon.tier,fireLevel:s.weapon.fireLevel,coolLevel:s.weapon.coolLevel,ringBonus:s.motion.ringBonus,
-      rules:tuning.values()};
+      pickupDistances:[...s.pickupDistances],rules:tuning.values()};
   },
   valid(c) {
     const finiteKeys=['wave','lives','charge','elapsed','bestWave','score','kills','pickups','tier','fireLevel','coolLevel'];
@@ -165,7 +191,8 @@ const checkpoint = {
       Number.isInteger(c.wave)&&c.wave>=1&&c.wave<=100000&&Number.isInteger(c.lives)&&c.lives>=1&&c.lives<=race.startLives&&
       c.charge>=0&&c.charge<=100&&c.elapsed>=0&&c.bestWave>=c.wave&&c.score>=0&&c.kills>=0&&c.pickups>=0&&
       ['tier','fireLevel','coolLevel'].every(k=>Number.isInteger(c[k])&&c[k]>=0&&c[k]<=3)&&
-      (c.ringBonus===undefined||Number.isFinite(c.ringBonus)&&c.ringBonus>=0)&&tuning.validCheckpoint(c.rules);
+      (c.ringBonus===undefined||Number.isFinite(c.ringBonus)&&c.ringBonus>=0)&&
+      (c.pickupDistances===undefined||Array.isArray(c.pickupDistances)&&c.pickupDistances.every(d=>Number.isFinite(d)&&d>=0))&&tuning.validCheckpoint(c.rules);
   },
   restore(c,continuation={}) {
     tuning.load();tuning.apply({...tuning.defaults,...c.rules,...tuning.saved?.values});
@@ -173,11 +200,12 @@ const checkpoint = {
     for(const key of ['lives','charge','elapsed','bestWave','score','kills','pickups'])s[key]=c[key];
     s.weapon.tier=c.tier;s.weapon.fireLevel=c.fireLevel;s.weapon.coolLevel=c.coolLevel;
     race.jump(s,c.wave);s.checkpointWave=c.wave;
+    s.pickupDistances=(c.pickupDistances||[]).filter(d=>d<s.distance&&d>=s.distance-pickups.minimumSpacing-encounters.despawnBehind);
     s.motion.ringBonus=Math.min(speedRings.bonusCap,c.ringBonus||0);
     if(continuation.lives!==undefined)s.lives=continuation.lives;
     if(continuation.elapsed!==undefined)s.elapsed=continuation.elapsed;
     if(continuation.bestWave!==undefined)s.bestWave=continuation.bestWave;
-    s.notice=`CHECKPOINT ${math.pad(c.wave)} · ${s.lives} LIVES`;return s;
+    return s;
   },
 };
 
@@ -192,7 +220,7 @@ const flight = ({
   },
   damage(s, amount) {
     if(s.invincible > 0 || s.protection > 0 || s.hurt > 0) return false;
-    s.hull = Math.max(0,s.hull - amount); s.hurt = 1.4;
+    s.hull = Math.max(0,s.hull - amount); s.hurt = hull.hitImmunitySeconds;
     return true;
   },
   shipPose(s) { return {position:[s.player.x,s.player.y,0],rotation:[-s.player.vy * .014, -s.player.vx * .006, -s.player.vx * .025],
@@ -227,57 +255,84 @@ const weapon = ({
 });
 
 const encounters = ({
-  spawnAhead:440, despawnBehind:25, maxObjects:90, easyInterval:210, hardInterval:82,
+  spawnAhead:440, despawnBehind:25, maxObjects:90,
+  startInterval:150,
+  minInterval:38,
+  spacingDecay:1,
+  startCount:1,
+  maxCount:4,
+  countGrowth:2.5,
+  startEnemyHp:1,
+  enemyHpGrowth:2.5,
+  startRockHp:1,
+  rockHpGrowth:1.875,
+  startDrift:.2,
+  maxDrift:3,
+  driftGrowth:1.5,
+  startFireInterval:4.5,
+  minFireInterval:.55,
+  fireDecay:.7,
+  shootingThreshold:.25,
+  escortThreshold:.45,
+  layout:{barrierEvery:4,orientationEvery:8,sideEvery:3,rockEvery:3,
+    halfWidth:6,halfHeight:4,rockOffset:17,enemyOffset:14,escortOffset:46,endClearance:30},
+  shooting:{nearDistance:25,farDistance:280},
   canSpawn(s,count=0) {return count<this.maxObjects&&s.nextSpawn<s.distance+this.spawnAhead;},
   alive(e,s) {return !e.dead && e.d > s.distance - this.despawnBehind;},
-  difficulty(wave) {return Math.pow((wave-1)/15,.9);},
-  interval(wave) {return Math.max(38,math.mix(this.easyInterval,this.hardInterval,Math.min(1,this.difficulty(wave)))-Math.max(0,wave-16)*1.8);},
+  interval(distance) {return Math.max(this.minInterval,this.startInterval*Math.exp(-this.spacingDecay*difficulty.progress(distance)));},
+  count(distance) {return Math.min(this.maxCount,this.startCount+Math.floor(this.countGrowth*difficulty.progress(distance)));},
+  fireInterval(distance) {return Math.max(this.minFireInterval,this.startFireInterval*Math.exp(-this.fireDecay*difficulty.progress(distance)));},
   make(s) {
-    const wave=race.waveAt(s.nextSpawn),d=s.nextSpawn,n=(wave-1)*64+Math.round((d-race.encounterStart(wave))/this.interval(wave));s.spawnIndex++;
+    const d=s.nextSpawn,wave=race.waveAt(d),n=Math.floor(d/this.interval(d)),layout=this.layout;
     random.seed(s.seed,d);
-    const next=d+this.interval(wave),nextWave=race.waveAt(next);
+    const next=d+this.interval(d),nextWave=race.waveAt(next);
     s.nextSpawn=nextWave===wave?next:race.encounterStart(nextWave);
     if(race.recovery(d))return [];
     const list=[];
-    if(n % 4 === 3) {
+    if(n % layout.barrierEvery === layout.barrierEvery-1) {
       // Alternating gates preserve a generous traversable corridor; barriers never form a sealed wall.
-      const vertical = n % 8 === 3;
-      const sign = n % 3 === 0 ? -1 : 1;
+      const vertical = n % layout.orientationEvery === layout.barrierEvery-1;
+      const sign = n % layout.sideEvery === 0 ? -1 : 1;
       list.push({type:'barrier',x:vertical ? sign*6.5 : 0,y:vertical ? 0 : sign*4.9,d,
         rx:vertical?3.1:11,ry:vertical?7.5:2.2,rz:1.4,hp:Infinity,age:0,phase:n});
-      if(wave >= 7) list.push(this.enemy(-sign*3, vertical?2:-sign*1,d+46,wave,n));
+      if(difficulty.progress(d)>=this.escortThreshold)list.push(this.enemy(-sign*3,vertical?2:-sign*1,d+layout.escortOffset,wave,n));
     } else {
-      const count = wave < 4 ? 1 : wave < 7 ? 2 : wave < 17 ? 3 : 4;
+      const count=this.count(d);
       for(let i=0;i<count;i++) {
-        const x = count === 1 ? math.random(-6,6) : -6 + i*12/(count-1);
-        list.push(n % 3 === 1 ? this.rock(x,math.random(-4,4),d + i*17,wave,n+i) : this.enemy(x,math.random(-4,4),d+i*14,wave,n+i));
+        const x=count===1?math.random(-layout.halfWidth,layout.halfWidth):-layout.halfWidth+i*layout.halfWidth*2/(count-1);
+        list.push(n%layout.rockEvery===1?this.rock(x,math.random(-layout.halfHeight,layout.halfHeight),d+i*layout.rockOffset,wave,n+i):this.enemy(x,math.random(-layout.halfHeight,layout.halfHeight),d+i*layout.enemyOffset,wave,n+i));
       }
     }
-    return list.filter(e=>!race.recovery(e.d)&&e.d%race.waveLength<race.waveLength-30);
+    return list.filter(e=>!race.recovery(e.d)&&e.d%race.waveLength<race.waveLength-layout.endClearance);
   },
-  enemy(x,y,d,wave,phase) { return {type:'enemy',x,y,baseX:x,baseY:y,d,rx:1.3,ry:.95,rz:1.5,
-    hp:1+Math.floor(wave/6),age:0,phase,drift:Math.min(3,math.mix(.2,1.7,this.difficulty(wave))),fire:math.random(2.8,4.7),wave}; },
-  rock(x,y,d,wave,phase) { const radius=math.random(.85,1.6);return {type:'rock',x,y,d,rx:radius,ry:radius,rz:radius,hp:1+Math.floor(wave/8),age:0,phase}; },
+  enemy(x,y,d,wave,phase) {const progress=difficulty.progress(d);return {type:'enemy',x,y,baseX:x,baseY:y,d,rx:1.3,ry:.95,rz:1.5,
+    hp:this.startEnemyHp+Math.floor(this.enemyHpGrowth*progress),age:0,phase,
+    drift:Math.min(this.maxDrift,this.startDrift+this.driftGrowth*progress),fire:this.fireInterval(d),wave};},
+  rock(x,y,d,wave,phase) {const radius=math.random(.85,1.6);return {type:'rock',x,y,d,rx:radius,ry:radius,rz:radius,
+    hp:this.startRockHp+Math.floor(this.rockHpGrowth*difficulty.progress(d)),age:0,phase};},
   animate(e,dt) {
     e.age += dt;
     if(e.type === 'enemy') { e.x=e.baseX+Math.sin(e.age*1.2+e.phase)*e.drift;
       e.y=e.baseY+Math.cos(e.age*.8+e.phase)*e.drift*.55;e.fire-=dt; }
     if(e.type==='hostile') { e.previousD=e.d;e.d-=135*dt; }
   },
-  shouldShoot(e,s) { return !race.recovery(s.distance) && e.type==='enemy' && e.wave>=4 && e.fire<=0 && e.d-s.distance<280 && e.d>s.distance+25; },
-  hostile(e,s) { e.fire = Math.max(.55,math.mix(4.5,2.2,this.difficulty(e.wave)));
+  shouldShoot(e,s) { return !race.recovery(s.distance) && e.type==='enemy' && difficulty.progress(e.d)>=this.shootingThreshold && e.fire<=0 && e.d-s.distance<this.shooting.farDistance && e.d>s.distance+this.shooting.nearDistance; },
+  hostile(e,s) { e.fire=this.fireInterval(e.d);
     return {type:'hostile',x:e.x,y:e.y,d:e.d,previousD:e.d,rx:.35,ry:.35,rz:1.2,hp:1,age:0}; },
   playerHit(e,s) {
     const near = e.type==='hostile' ? Math.min(e.previousD,e.d) <= s.distance+1.2 && Math.max(e.previousD,e.d) >= s.previousDistance-1.2
       : e.d+e.rz>=s.previousDistance && e.d-e.rz<=s.distance;
     return near && Math.abs(e.x-s.player.x)<e.rx+flight.shipRadius && Math.abs(e.y-s.player.y)<e.ry+flight.shipRadius;
   },
-  damage: {barrier:24,rock:19,enemy:16,hostile:12},
+  damage: {get barrier(){return hull.obstacleDamage;},get rock(){return hull.obstacleDamage;},enemy:16,hostile:12},
   score(s,e) { s.kills++;s.score+=e.type==='enemy'?150:75; },
 });
 
 const pickups = ({
-  interval:260,recoveryInterval:65,radius:1.65,chargeMin:10,chargeMax:15,repairMin:10,repairMax:25,
+  minimumSpacing:500,
+  frequency:1,
+  placement:{startOffset:55,halfWidth:5.5,halfHeight:3.4,repairStretch:120},
+  radius:1.65,chargeMin:10,chargeMax:15,repairMin:10,repairMax:25,
   canSpawn(s) {return s.nextPickup<s.distance+encounters.spawnAhead;},
   duration:{invincible:7,turbo:7},
   types:['charge','cannon','fire','cool','invincible','turbo','repair'],
@@ -286,16 +341,28 @@ const pickups = ({
   colors:{charge:0x8eeee3,cannon:0xf291bd,fire:0x84b8ff,cool:0xceadff,invincible:0xffce72,turbo:0xffa55e,repair:0x90e99f},
   labels:{charge:'SPEED CHARGE',cannon:'CANNON UPGRADE',fire:'FIRE RATE UPGRADE',cool:'COOLING UPGRADE',invincible:'INVINCIBLE · 7 SECONDS',turbo:'TURBO · 7 SECONDS',repair:'HULL REPAIR'},
   make(type,x,y,d) {return {type:'pickup',pickup:type,x,y,d,rx:this.radius,ry:this.radius,rz:1.2,age:0,hp:Infinity,value:type==='charge'?Math.floor(math.random(this.chargeMin,this.chargeMax+1)):type==='repair'?Math.floor(math.random(this.repairMin,this.repairMax+1)):0};},
+  startDistance(distance) {
+    const offset=this.placement.startOffset;
+    return offset+Math.max(0,Math.ceil((distance-offset)/this.minimumSpacing))*this.minimumSpacing;
+  },
+  reserve(s,d) {
+    // Keep recently passed positions too, so collection does not erase the minimum gap.
+    s.pickupDistances=s.pickupDistances.filter(position=>position>=s.distance-encounters.despawnBehind-this.minimumSpacing);
+    if(random.next()>=this.frequency||s.pickupDistances.some(position=>Math.abs(position-d)<this.minimumSpacing))return false;
+    s.pickupDistances.push(d);return true;
+  },
   scheduled(s) {
-    const d=s.nextPickup;random.seed(s.seed,'pickup:'+d);
-    const rest=race.recovery(d),wave=race.waveAt(d),index=Math.floor(d/this.interval);
-    const type=rest?(wave>1&&d%race.waveLength<120?'repair':'charge'):this.types[index%this.types.length];
-    const result=this.make(this.rebalance(type),math.random(-5.5,5.5),math.random(-3.4,3.4),d);
-    const candidate=d+(rest?this.recoveryInterval:this.interval),nextBreak=race.checkpointDistance(wave+1)+55;
-    s.nextPickup=Math.min(candidate,nextBreak);return result;
+    const d=s.nextPickup,placement=this.placement;
+    s.nextPickup=d+this.minimumSpacing;
+    random.seed(s.seed,'pickup:'+d);
+    if(!this.reserve(s,d))return null;
+    const rest=race.recovery(d),index=Math.round((d-placement.startOffset)/this.minimumSpacing);
+    const type=rest?(d>=race.waveLength&&d%race.waveLength<placement.repairStretch?'repair':'charge'):this.types[index%this.types.length];
+    return this.make(this.rebalance(type),math.random(-placement.halfWidth,placement.halfWidth),math.random(-placement.halfHeight,placement.halfHeight),d);
   },
   drop(e,s) {
     random.seed(s.seed,'drop:'+e.d+':'+e.phase);
+    if(!this.reserve(s,e.d))return null;
     const bag=s.hull<60?['repair','repair','charge','cannon','fire','cool','invincible','turbo']:['charge','charge','cannon','fire','cool','invincible','turbo','repair'];
     return this.make(this.rebalance(math.pick(bag)),e.x,e.y,e.d);
   },
@@ -309,7 +376,7 @@ const pickups = ({
     if(p.pickup==='cannon'){if(w.tier<3)w.tier++;else s.charge=math.clamp(s.charge+this.chargeMax,0,100);label=`${weapon.labels[w.tier]} CANNON`;}
     if(p.pickup==='fire'){w.fireLevel=math.clamp(w.fireLevel+1,0,3);label=`FIRE RATE ${w.fireLevel+1}`;}
     if(p.pickup==='cool'){w.coolLevel=math.clamp(w.coolLevel+1,0,3);label=`COOLING ${w.coolLevel+1}`;}
-    if(p.pickup==='repair'){s.hull=math.clamp(s.hull+p.value,0,100);label+=` +${p.value}%`;}
+    if(p.pickup==='repair'){s.hull=math.clamp(s.hull+p.value,0,hull.maxIntegrity);label+=` +${p.value}%`;}
     if(p.pickup==='invincible')s.invincible=this.duration.invincible;
     if(p.pickup==='turbo')propulsion.turbo(s);
     s.pickups++;s.score+=50;s.toast=this.food[p.pickup]+' · '+label;s.toastTime=2.4;
@@ -393,8 +460,8 @@ const gfx = ({
     image:'./assets/title/hangar-clean-v1.png',width:1672,height:941,frames:8,frameSeconds:.24,
     sheet:{width:1774,height:887,columns:4,rows:2},
     sprites:[
-      {id:'hangar-tail',image:'./assets/title/tail-wind-v2.png',size:[312,302],scale:[.8,1.2],sourceAnchor:[80,309],anchor:[1280,592]},
-      {id:'hangar-scarf',image:'./assets/title/scarf-wind-v2.png',size:[400,300],scale:[1,1],sourceAnchor:[30,218],anchor:[1138,432]},
+      {id:'hangar-tail',image:'./assets/title/tail-wind-v2.png',size:[312,302],scale:[.8,1.2],sourceAnchor:[80,309],anchor:[1280,592],sourceWindow:{left:64,right:48}},
+      {id:'hangar-scarf',image:'./assets/title/scarf-wind-v2.png',size:[400,300],scale:[1,1],sourceAnchor:[30,218],anchor:[1138,432],sourceWindow:{left:12,right:0}},
     ],
     lights:[
       {glow:[599,22,55],color:'#ffe3b8',phase:0},
@@ -405,15 +472,29 @@ const gfx = ({
     ],
     frameAt(time,reduced=false) {return reduced?0:Math.floor(time/this.frameSeconds)%this.frames;},
     frameRect(index) {const w=this.sheet.width/this.sheet.columns,h=this.sheet.height/this.sheet.rows;return [(index%this.sheet.columns)*w,Math.floor(index/this.sheet.columns)*h,w,h];},
-    framePosition(index) {return `${index%this.sheet.columns/(this.sheet.columns-1)*100}% ${Math.floor(index/this.sheet.columns)/(this.sheet.rows-1)*100}%`;},
+    // A pose can extend into the next atlas cell's transparent leading margin.
+    // Isolate its source window before scaling, retaining its own full tip.
+    spriteFrameRect(sprite,index) {
+      const [x,y,w,h]=this.frameRect(index),window=sprite.sourceWindow;
+      return [x+window.left,y,w-window.left+window.right,h];
+    },
+    framePosition(index,sprite) {
+      const [x,y,w,h]=this.spriteFrameRect(sprite,index);
+      return `${x/(this.sheet.width-w)*100}% ${y/(this.sheet.height-h)*100}%`;
+    },
     layerRect(sprite) {
       const w=sprite.size[0]*sprite.scale[0],h=sprite.size[1]*sprite.scale[1];
       return [sprite.anchor[0]-sprite.sourceAnchor[0]/(this.sheet.width/this.sheet.columns)*w,
         sprite.anchor[1]-sprite.sourceAnchor[1]/(this.sheet.height/this.sheet.rows)*h,w,h];
     },
+    spriteLayerRect(sprite) {
+      const [x,y,w,h]=this.layerRect(sprite),frame=this.frameRect(0),source=this.spriteFrameRect(sprite,0);
+      return [x+sprite.sourceWindow.left/frame[2]*w,y,source[2]/frame[2]*w,h];
+    },
     layerStyle(sprite) {
-      const [x,y,w,h]=this.layerRect(sprite);return {left:`${x/this.width*100}%`,top:`${y/this.height*100}%`,width:`${w/this.width*100}%`,height:`${h/this.height*100}%`,
-        backgroundImage:`url("${sprite.image}")`,backgroundSize:`${this.sheet.columns*100}% ${this.sheet.rows*100}%`,backgroundPosition:this.framePosition(0)};
+      const [x,y,w,h]=this.spriteLayerRect(sprite),source=this.spriteFrameRect(sprite,0);
+      return {left:`${x/this.width*100}%`,top:`${y/this.height*100}%`,width:`${w/this.width*100}%`,height:`${h/this.height*100}%`,
+        backgroundImage:`url("${sprite.image}")`,backgroundSize:`${this.sheet.width/source[2]*100}% ${this.sheet.height/source[3]*100}%`,backgroundPosition:this.framePosition(0,sprite)};
     },
     lightStyle(light) {const [x,y,r]=light.glow;return {left:`${(x-r)/this.width*100}%`,top:`${(y-r)/this.height*100}%`,width:`${r*2/this.width*100}%`,height:`${r*2/this.height*100}%`,background:`radial-gradient(ellipse,${light.color},transparent 70%)`};},
     lightAlpha(index,phase) {return [.016,.021,.028,.031,.026,.019,.013,.014][(index+phase)%this.frames];},
@@ -450,6 +531,13 @@ const gfx = ({
 });
 
 const ui = ({
+  hud:{
+    speedDigits:3,percentScale:100,debugGapPx:12,
+    heat:{max:100,warningPercent:60,criticalPercent:90,arcDegrees:100,svgSize:100,svgRadius:44,
+      radiusWorld:3.25,minDiameterPx:132,lineWidthPx:2,paleBlue:'#a6dcf4',orange:'#ff9a45',red:'#ff453e'},
+    hull:{warningPercent:40,criticalPercent:12,lerpRate:9,snapTolerance:.01,flashSeconds:.65,
+      flashCyclesPerSecond:6,flashBase:.12,flashStrength:.8,green:'#8effb0',orange:'#ff9a45',red:'#ff453e'},
+  },
   menus:{
     title:{actions:['launch','checkpoint-resume','flight-manual','options-button','tune-button'],trapFocus:false},
     paused:{panel:'pause-menu',label:'Flight paused',actions:['resume','home'],trapFocus:true},
@@ -461,14 +549,19 @@ const ui = ({
     const keys=this.menuKeys;
     return index<keys.firstIndex?(code===keys.previous?count-keys.step:keys.firstIndex):(index+(code===keys.previous?-keys.step:keys.step)+count)%count;
   },
-  sectorText(s) {return math.pad(s.sector+1);},
-  roman:['I','II','III','IV'],
-  speedText(s) { return String(Math.round(s.speed)).padStart(3,'0'); },
+  speedText(s) { return `${String(Math.round(s.speed)).padStart(this.hud.speedDigits,'0')} KM/S`; },
   chargeText(s) {return math.percent(s.charge);},
-  heatText(w) {return w.overheated?`OVERHEAT · ${w.heat>0?'COOLING':w.lock.toFixed(1)+'s'}`:`HEAT ${Math.round(w.heat)}% · AMMO ∞`;},
-  cannonText(w) {return `${weapon.labels[w.tier]} CANNON`;},
-  upgrades(w) {return `FIRE ${this.roman[w.fireLevel]} · COOL ${this.roman[w.coolLevel]}`;},
-  effect(s) {return s.protection>0?`RESPAWN SHIELD ${s.protection.toFixed(1)}s`:s.invincible>0?`INVINCIBLE ${s.invincible.toFixed(1)}s`:s.turbo>0?`TURBO ${s.turbo.toFixed(1)}s`:s.boosting?'AFTERBURN':s.motion.ringBonus>0?`RING BOOST +${Math.round(s.motion.ringBonus*100)}%`:race.recovery(s.distance)?'BONUS STRETCH':'CRUISE';},
+  heatLevel(heat) {return heat>this.hud.heat.criticalPercent?'critical':heat>this.hud.heat.warningPercent?'warning':'normal';},
+  hullLevel(integrity) {const percent=integrity/hull.maxIntegrity*this.hud.percentScale;return percent<=this.hud.hull.criticalPercent?'critical':percent<=this.hud.hull.warningPercent?'warning':'normal';},
+  heatArcPath(side) {
+    const config=this.hud.heat,center=config.svgSize/2,angle=config.arcDegrees/2*Math.PI/180;
+    const x=center+side*config.svgRadius*Math.cos(angle),y=config.svgRadius*Math.sin(angle);
+    return `M ${x} ${center+y} A ${config.svgRadius} ${config.svgRadius} 0 0 ${side<0?1:0} ${x} ${center-y}`;
+  },
+  hullFlash(remaining) {
+    const config=this.hud.hull,elapsed=config.flashSeconds-remaining;
+    return remaining>0?(config.flashBase+config.flashStrength*Math.abs(Math.cos(elapsed*math.tau*config.flashCyclesPerSecond)))*remaining/config.flashSeconds:0;
+  },
   time(seconds) {return `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;},
   finalScore(s) {return s.score+Math.floor(s.distance/10);},
 });
@@ -734,7 +827,7 @@ const speedEffects = {
 const route = {
   openShare:.6,tunnelWeight:1,stationWeight:1,cruiserWeight:1,
   tunnelLength:720,stationLength:420,cruiserLength:1100,
-  tileDistance:20,behindDistance:55,contactMargin:.3,contactEpsilon:.01,wallDamage:24,
+  tileDistance:20,behindDistance:55,contactMargin:.3,contactEpsilon:.01,
   tunnel:{radius:9.5,sides:24,windowGroupTiles:7,windowTiles:3,windowSides:[0,1,5,6,11,12,17,18],
     ribEveryTiles:4,ribWidth:.22,windowInset:.08},
   station:{halfWidth:17,halfHeight:10,openingHalfWidth:3.2,openingHalfHeight:2.5,
@@ -820,48 +913,110 @@ const voices = {
 // Mutable numeric overrides; authored rules remain centralized above.
 const tuning = {
   seed:'GOODBOY',defaultSeed:'GOODBOY',seedLimit:80,
-  persistence:{key:'starhound.developer-settings.v1',version:1},saved:null,
-  checkpointGroups:['race','encounters','weapon','pickups','gfx'],
+  persistence:{key:'starhound.developer-settings.v1',version:2},saved:null,
+  checkpointGroups:['difficulty','race','encounters','weapon','pickups','gfx'],
   fields:[
-    ['race.waveLength','Wave distance',500,2200,10],['race.startSpeed','Starting speed',35,100,1],
-    ['race.speedPerWave','Speed per wave',1,8,.1],['race.endlessAcceleration','Endless speed growth',0,12,.1],
-    ['race.recoveryLength','Bonus stretch distance',80,350,5],['race.chargeDrain','Charge drain / second',0,5,.1],
-    ['race.boostDrain','Boost drain / second',5,30,.5],['encounters.easyInterval','Early obstacle spacing',150,400,5],
-    ['encounters.hardInterval','Wave 16 obstacle spacing',55,180,1],['weapon.baseInterval','Fire interval / seconds',.05,.5,.01],
-    ['weapon.heatPerVolley','Heat per volley',5,18,.1],['weapon.coolingPerSecond','Cooling / second',12,45,.5],
-    ['weapon.extraCooldown','Extra overheat lock / seconds',0,2,.1],['pickups.interval','Pickup spacing',120,500,5],
-    ['gfx.fogDensity','Space fog',0,.01,.0001],
-    ['route.openShare','Open space share (0–1)',.1,.95,.05],
-    ['route.tunnelWeight','Tunnel frequency weight',0,10,.1],
-    ['route.stationWeight','Station frequency weight',0,10,.1],
-    ['route.cruiserWeight','Cruiser frequency weight',0,10,.1],
-    ['route.tunnelLength','Tunnel length / distance',240,3000,20],
-    ['route.stationLength','Station length / distance',360,1600,20],
-    ['route.cruiserLength','Cruiser length / distance',400,4000,20],
-    ['speedRings.seriesDistance','Ring series interval / distance',800,3000,20],
-    ['speedRings.spacing','Space between rings / distance',60,160,5],
-    ['speedRings.bonusPerRing','Speed bonus per ring (0–1)',.01,.3,.01],
-    ['speedRings.bonusCap','Maximum ring speed bonus (0–1)',.1,1.5,.05],
-    ['speedRings.decayPerSecond','Ring bonus decay / second',.005,.15,.005],
+    {path:'race.waveLength',label:'Wave distance',min:500,max:5000,step:10},
+    {path:'race.startSpeed',label:'Starting speed',min:35,max:200,step:1},
+    {path:'difficulty.distanceScale',label:'Difficulty growth distance',min:1000,max:100000,step:1},
+    {path:'difficulty.growth',label:'Difficulty growth multiplier',min:0,max:10,step:.05},
+    {path:'difficulty.curve',label:'Difficulty curve exponent',min:.1,max:2,step:.05},
+    {path:'race.speedGrowth',label:'Speed growth / difficulty',min:0,max:200,step:.5},
+    {path:'race.maxSpeed',label:'Maximum cruise speed',min:35,max:1000,step:1},
+    {path:'race.recoveryLength',label:'Bonus stretch distance',min:80,max:350,step:5},
+    {path:'race.chargeDrain',label:'Charge drain / second',min:0,max:15,step:.1},
+    {path:'race.boostDrain',label:'Boost drain / second',min:0,max:100,step:.5},
+    {path:'encounters.startInterval',label:'Starting obstacle spacing',min:5,max:5000,step:5},
+    {path:'encounters.minInterval',label:'Minimum obstacle spacing',min:1,max:5000,step:1},
+    {path:'encounters.spacingDecay',label:'Obstacle spacing decay / difficulty',min:0,max:5,step:.01},
+    {path:'encounters.startCount',label:'Starting obstacles / group',min:1,max:8,step:1},
+    {path:'encounters.maxCount',label:'Maximum obstacles / group',min:1,max:8,step:1},
+    {path:'encounters.countGrowth',label:'Obstacle count growth / difficulty',min:0,max:10,step:.1},
+    {path:'encounters.startEnemyHp',label:'Starting enemy health',min:1,max:20,step:1},
+    {path:'encounters.enemyHpGrowth',label:'Enemy health growth / difficulty',min:0,max:10,step:.1},
+    {path:'encounters.startRockHp',label:'Starting rock health',min:1,max:20,step:1},
+    {path:'encounters.rockHpGrowth',label:'Rock health growth / difficulty',min:0,max:10,step:.025},
+    {path:'encounters.startDrift',label:'Starting enemy drift',min:0,max:6,step:.1},
+    {path:'encounters.maxDrift',label:'Maximum enemy drift',min:0,max:6,step:.1},
+    {path:'encounters.driftGrowth',label:'Enemy drift growth / difficulty',min:0,max:6,step:.1},
+    {path:'encounters.startFireInterval',label:'Starting enemy fire interval / seconds',min:.1,max:20,step:.05},
+    {path:'encounters.minFireInterval',label:'Minimum enemy fire interval / seconds',min:.1,max:20,step:.05},
+    {path:'encounters.fireDecay',label:'Enemy fire interval decay / difficulty',min:0,max:5,step:.01},
+    {path:'encounters.shootingThreshold',label:'Enemy firing threshold / difficulty',min:0,max:5,step:.05},
+    {path:'encounters.escortThreshold',label:'Barrier escort threshold / difficulty',min:0,max:5,step:.05},
+    {path:'weapon.baseInterval',label:'Fire interval / seconds',min:.05,max:.5,step:.01},
+    {path:'weapon.heatPerVolley',label:'Heat per volley',min:5,max:18,step:.1},
+    {path:'weapon.coolingPerSecond',label:'Cooling / second',min:12,max:45,step:.5},
+    {path:'weapon.extraCooldown',label:'Extra overheat lock / seconds',min:0,max:2,step:.1},
+    {path:'pickups.minimumSpacing',label:'Minimum space between pickups / distance',min:5,max:5000,step:5},
+    {path:'pickups.frequency',label:'Pickup frequency (0–1)',min:0,max:1,step:.01},
+    {path:'gfx.fogDensity',label:'Space fog',min:0,max:.01,step:.0001},
+    {path:'route.openShare',label:'Open space share (0–1)',min:.1,max:.95,step:.05},
+    {path:'route.tunnelWeight',label:'Tunnel frequency weight',min:0,max:10,step:.1},
+    {path:'route.stationWeight',label:'Station frequency weight',min:0,max:10,step:.1},
+    {path:'route.cruiserWeight',label:'Cruiser frequency weight',min:0,max:10,step:.1},
+    {path:'route.tunnelLength',label:'Tunnel length / distance',min:240,max:3000,step:20},
+    {path:'route.stationLength',label:'Station length / distance',min:360,max:1600,step:20},
+    {path:'route.cruiserLength',label:'Cruiser length / distance',min:400,max:4000,step:20},
+    {path:'speedRings.seriesDistance',label:'Ring series interval / distance',min:800,max:3000,step:20},
+    {path:'speedRings.spacing',label:'Space between rings / distance',min:60,max:160,step:5},
+    {path:'speedRings.bonusPerRing',label:'Speed bonus per ring (0–1)',min:.01,max:.3,step:.01},
+    {path:'speedRings.bonusCap',label:'Maximum ring speed bonus (0–1)',min:.1,max:1.5,step:.05},
+    {path:'speedRings.decayPerSecond',label:'Ring bonus decay / second',min:.005,max:.15,step:.005},
   ],
-  objects:{race,encounters,weapon,pickups,gfx,renderMath,music,route,speedRings},
-  values() {return Object.fromEntries(this.fields.map(([path])=>{const [group,key]=path.split('.');return [path,this.objects[group][key]];}));},
-  valid(values) {return values&&typeof values==='object'&&this.fields.every(([path,,min,max])=>Number.isFinite(values[path])&&values[path]>=min&&values[path]<=max)&&
-    values['route.tunnelWeight']+values['route.stationWeight']+values['route.cruiserWeight']>0;},
+  objects:{difficulty,race,encounters,weapon,pickups,gfx,renderMath,music,route,speedRings},
+  values() {return Object.fromEntries(this.fields.map(({path})=>{const [group,key]=path.split('.');return [path,this.objects[group][key]];}));},
+  constraints:[
+    {lower:'race.startSpeed',upper:'race.maxSpeed',message:'Maximum cruise speed must be at least the starting speed.'},
+    {lower:'encounters.minInterval',upper:'encounters.startInterval',message:'Minimum obstacle spacing cannot exceed starting obstacle spacing.'},
+    {lower:'encounters.startCount',upper:'encounters.maxCount',message:'Maximum obstacle count must be at least the starting count.'},
+    {lower:'encounters.startDrift',upper:'encounters.maxDrift',message:'Maximum enemy drift must be at least the starting drift.'},
+    {lower:'encounters.minFireInterval',upper:'encounters.startFireInterval',message:'Minimum enemy fire interval cannot exceed its starting interval.'},
+  ],
+  validationError(values) {
+    if(!values||typeof values!=='object')return 'Enter valid settings.';
+    for(const {path,label,min,max,step} of this.fields)
+      if(!Number.isFinite(values[path])||values[path]<min||values[path]>max||step===1&&!Number.isInteger(values[path]))return `Enter a valid value for ${label}.`;
+    for(const {lower,upper,message} of this.constraints)if(values[lower]>values[upper])return message;
+    if(values['route.tunnelWeight']+values['route.stationWeight']+values['route.cruiserWeight']<=0)return 'Give at least one motif a frequency weight above zero.';
+    return '';
+  },
+  valid(values) {return !this.validationError(values);},
+  migrateValues(values) {
+    if(!values||!legacyTuning.requiredRules.every(path=>Number.isFinite(values[path])))return null;
+    const mapped={
+      'difficulty.distanceScale':values['race.waveLength']*legacyTuning.rampSpan,
+      'race.speedGrowth':values['race.speedPerWave']*legacyTuning.rampSpan,
+      'encounters.startInterval':values['encounters.easyInterval'],
+      'encounters.minInterval':Math.min(legacyTuning.minimumObstacleSpacing,values['encounters.easyInterval'],values['encounters.hardInterval']),
+      'encounters.spacingDecay':Math.max(0,Math.log(values['encounters.easyInterval']/values['encounters.hardInterval'])),
+      'pickups.minimumSpacing':values['pickups.interval'],
+    };
+    for(const {path,min,max,step} of this.fields)
+      if(path in mapped)mapped[path]=math.clamp(Math.round(mapped[path]/step)*step,min,max);
+    const converted={...this.defaults,...values,...mapped};
+    const migrated=Object.fromEntries(this.fields.map(({path})=>[path,converted[path]]));
+    return this.valid(migrated)?migrated:null;
+  },
   validCheckpoint(values) {
-    return values&&this.fields.filter(([path])=>this.checkpointGroups.includes(path.split('.')[0])).every(([path])=>Number.isFinite(values[path]))&&this.valid({...this.defaults,...values});
+    return values&&this.fields.filter(({path})=>this.checkpointGroups.includes(path.split('.')[0])).every(({path})=>Number.isFinite(values[path]))&&this.valid({...this.defaults,...values});
   },
   apply(values) {
-    for(const [path,,min,max] of this.fields) {if(values[path]===undefined)continue;const [group,key]=path.split('.'),v=Number(values[path]);if(Number.isFinite(v))this.objects[group][key]=math.clamp(v,min,max);}
+    for(const {path,min,max} of this.fields) {if(values[path]===undefined)continue;const [group,key]=path.split('.'),v=Number(values[path]);if(Number.isFinite(v))this.objects[group][key]=math.clamp(v,min,max);}
   },
   load() {
     try {
       const stored=JSON.parse(global.localStorage?.getItem(this.persistence.key)||'null');
-      if(stored?.version===this.persistence.version&&this.valid(stored.values)&&typeof stored.seed==='string')this.saved=stored;
+      if(stored&&typeof stored.seed==='string'){
+        const values=stored.version===legacyTuning.settingsVersion?this.migrateValues(stored.values):stored.values;
+        if((stored.version===this.persistence.version||stored.version===legacyTuning.settingsVersion)&&this.valid(values))
+          this.saved={version:this.persistence.version,values,seed:stored.seed};
+      }
     }catch{}
     if(this.saved){this.apply(this.saved.values);this.seed=this.saved.seed.slice(0,this.seedLimit);}
   },
   save(values,seed) {
+    if(!this.valid(values))return false;
     this.apply(values);this.seed=seed.trim().slice(0,this.seedLimit)||this.defaultSeed;
     this.saved={version:this.persistence.version,values:this.values(),seed:this.seed};
     try{global.localStorage.setItem(this.persistence.key,JSON.stringify(this.saved));return true;}catch{return false;}
@@ -870,22 +1025,27 @@ const tuning = {
 };
 tuning.apply(overrides);if(typeof overrides.seed==='string')tuning.seed=overrides.seed.slice(0,80);
 tuning.defaults=Object.freeze(tuning.values());tuning.defaultSeed=tuning.seed;tuning.load();
-namespace.settings = Object.freeze({math,random,tunnel,race,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,music,sfx,voices,renderMath,speedEffects,scenery,route,speedRings,propulsion,crash,tuning});
+namespace.settings = Object.freeze({math,random,tunnel,difficulty,race,hull,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,music,sfx,voices,renderMath,speedEffects,scenery,route,speedRings,propulsion,crash,tuning});
 })(window, {
   "race.waveLength": 2200,
   "race.startSpeed": 75,
-  "race.speedPerWave": 1,
-  "race.endlessAcceleration": 1,
+  "difficulty.distanceScale": 33000,
+  "difficulty.growth": 1,
+  "difficulty.curve": 0.9,
+  "race.speedGrowth": 15,
+  "race.maxSpeed": 500,
   "race.recoveryLength": 210,
   "race.chargeDrain": 1.2,
   "race.boostDrain": 15,
-  "encounters.easyInterval": 150,
-  "encounters.hardInterval": 55,
+  "encounters.startInterval": 150,
+  "encounters.minInterval": 38,
+  "encounters.spacingDecay": 1,
   "weapon.baseInterval": 0.05,
   "weapon.heatPerVolley": 5,
   "weapon.coolingPerSecond": 22,
   "weapon.extraCooldown": 1,
-  "pickups.interval": 500,
+  "pickups.minimumSpacing": 500,
+  "pickups.frequency": 1,
   "gfx.fogDensity": 0.0022,
   "route.openShare": 0.6,
   "route.tunnelWeight": 1,

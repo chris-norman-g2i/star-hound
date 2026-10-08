@@ -29,18 +29,17 @@
 </div>
 </main>
 <section id="hud" class="hidden" aria-label="Flight instruments">
-<div class="hud-top"><div><span class="tiny-label">SECTOR <span id="sector">01</span></span><h2 id="sector-name">THE DEPARTURE</h2></div><div class="wave-info"><span class="tiny-label">WAVE <b id="wave">01</b> · ENDLESS</span><div class="wave-dots" id="wave-dots"></div></div><button id="pause-button" class="icon-button">PAUSE II</button></div>
+<div class="hud-top">
+<div id="lives" class="lives-instrument" aria-label="3 lives remaining"><strong id="lives-text">3</strong><svg class="dog-ship-icon" viewBox="0 0 80 64" aria-hidden="true"><path class="icon-ship" d="M40 30 48 41 73 46 68 56 48 52 40 59 32 52 12 56 7 46 32 41Z"/><path class="icon-dog" d="m26 27 1-22 11 10h4L53 5l1 22-6 12H32Z"/><path class="icon-visor" d="M29 23h22v8H29Z"/><path class="icon-scarf" d="M31 36h18v5H31Zm17 3 11 6-9 3Z"/></svg></div>
+<button id="pause-button" class="icon-button">PAUSE II</button>
+</div>
 <div class="reticle" id="reticle" aria-label="Projected cannon aim">＋</div><div id="impact-flash"></div><div id="speed-glow"></div>
-<div id="checkpoint-success" aria-hidden="true"><span>✓</span><strong>CHECKPOINT SAVED</strong></div><div id="announcement" role="status"></div><div id="pickup-toast" role="status"></div>
+<svg id="ship-heat" viewBox="0 0 100 100" role="meter" aria-label="Cannon heat" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><g class="heat-tracks"><path class="heat-track"/><path class="heat-track"/></g><g class="heat-fills"><path class="heat-fill" pathLength="100"/><path class="heat-fill" pathLength="100"/></g></svg>
+<div id="checkpoint-success" aria-hidden="true"><span>✓</span></div><div id="pickup-toast" role="status"></div>
 <div class="hud-bottom">
-<div class="flight-audio"><span class="tiny-label">NOW PLAYING</span><strong id="track-name"></strong><small>M · NEXT TRACK</small></div>
-<div class="center-instruments">
-<div class="speed-instrument"><strong id="speed">056</strong><span>VELOCITY</span><div class="meter"><div id="speed-fill"></div></div><small id="effect-label">CRUISE</small></div>
-<div class="instrument health"><span class="tiny-label">HULL INTEGRITY</span><div class="meter"><div id="hull-fill"></div></div><span id="hull-text">100%</span><small id="lives-text">3 LIVES · CHECKPOINT 1</small></div>
+<div class="speed-instrument"><strong id="speed">056 KM/S</strong><div class="meter" role="meter" aria-label="Speed charge" aria-valuemin="0" aria-valuemax="100" aria-valuenow="45" id="speed-charge"><div id="speed-fill"></div></div></div>
+<div id="hull-instrument" class="health" data-level="normal"><div class="hull-heading"><span>HULL INTEGRITY</span><strong id="hull-text">100%</strong></div><div id="hull-meter" class="hull-meter" role="meter" aria-label="Hull integrity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><div id="hull-fill"></div></div></div>
 </div>
-<div class="instrument weapon"><span class="tiny-label" id="cannon-name">SINGLE CANNON</span><div class="meter"><div id="heat-fill"></div></div><span id="weapon-status">HEAT 0% · AMMO ∞</span><small id="upgrade-status">FIRE I · COOL I</small></div>
-</div>
-<div class="hud-hints">WASD / ARROWS · STEER &nbsp; SPACE · FIRE &nbsp; SHIFT · BOOST &nbsp; ESC · PAUSE &nbsp; M · NEXT TRACK</div>
 </section>
 <section id="overlay" class="screen hidden" role="dialog" aria-modal="true" aria-label="Flight paused">
 <nav id="pause-menu" class="pause-menu flight-frame hidden" aria-label="Pause menu">
@@ -96,6 +95,8 @@
 <div id="tuning-fields" class="tuning-grid"></div>
 <div class="tuning-actions"><button id="apply-tuning" class="primary">APPLY</button><button id="export-settings" class="icon-button">COPY COMPLETE SETTINGS.JS</button><button id="reset-tuning" class="text-button">RESET DEFAULTS</button></div>
 <label class="jump-label">START AT WAVE <input id="jump-wave" type="number" min="1" max="100000" value="1"><button id="jump-button" class="icon-button">PLAY NOW</button></label>
+<p>Difficulty grows continuously with distance. Growth distance sets the scale; the multiplier controls its rate (0 keeps starting difficulty), and the exponent shapes the curve. Speed, obstacle count, health, drift and fire rate use this shared progression.</p>
+<p>Minimum pickup spacing applies everywhere, including bonus stretches and enemy drops. Frequency is the chance at each eligible opportunity: 0 disables pickups, 1 uses every opportunity that satisfies the minimum gap.</p>
 <p>Open space share controls the distance spent in open space. Motif weights control their relative frequency; a weight of zero disables that motif. Ring bonuses decay gradually and are lost or reduced by collisions.</p>
 <p id="tuning-status" role="status"></p><textarea id="settings-export" class="hidden" readonly aria-label="Complete settings.js source for manual copy"></textarea></dialog>
 <!-- Ordered classic scripts work on both file:// and static HTTP(S) hosting. -->

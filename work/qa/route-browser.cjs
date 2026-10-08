@@ -73,7 +73,7 @@ const autoplayArgs=allowAutoplay?['--autoplay-policy=no-user-gesture-required']:
     await page.evaluate(({segment,offset})=>{
       const s=qa.state,{race}=Starhound.settings;
       s.distance=segment.start+offset;s.previousDistance=s.distance;s.wave=race.waveAt(s.distance);s.sector=race.sectorAt(s.wave);
-      s.player={x:0,y:0,vx:0,vy:0};s.speed=70;s.protection=0;s.noticeTime=0;document.getElementById('announcement').classList.remove('visible');s.toastTime=0;s.checkpointCelebration=0;
+      s.player={x:0,y:0,vx:0,vy:0};s.speed=70;s.protection=0;s.toastTime=0;s.checkpointCelebration=0;
       document.getElementById('overlay').classList.add('hidden');
     },{segment,offset});await page.waitForTimeout(100);
   };

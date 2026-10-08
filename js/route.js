@@ -1,6 +1,6 @@
 (function(namespace){
 'use strict';
-const {route,speedRings,math,flight,propulsion,tuning}=namespace.settings;
+const {route,speedRings,math,flight,hull,propulsion,tuning}=namespace.settings;
 
 /** One distance plan owns motif boundaries, collision surfaces and ring placement.
  * Its hash sampling never consumes the encounter or pickup random stream.
@@ -141,7 +141,7 @@ class RoutePlan {
     if(!contact.penetrating)return;
     if(contact.id!==this.contactId){
       propulsion.impact(s,'barrier');
-      if(flight.damage(s,route.wallDamage)){sound.play('hit',s.player.x);sound.voice('hit',s);}
+      if(flight.damage(s,hull.obstacleDamage)){sound.play('hit',s.player.x);sound.voice('hit',s);}
     }
     this.contactId=contact.id;contact.resolve();
   }

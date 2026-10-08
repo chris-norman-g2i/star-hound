@@ -41,9 +41,14 @@ built-in image-generation prompt are saved in assets/title/star-hound-logo-v1.pn
 
 FLIGHT AND DIFFICULTY
 Three lives, endless four-wave sectors, no finish line or victory screen.
-Starting encounter spacing is 210 units (previously 230), falling toward 82 at wave 16 (previously 95).
-The initial difficulty curve uses exponent 0.9 for a slightly steeper early ramp.
-Wave-dependent cruising speed and endless speed growth retain their existing progression.
+Difficulty is continuous with distance traveled: (distance / growth distance * multiplier) ^ exponent.
+The active defaults use a 33,000-unit growth distance, multiplier 1 and exponent 0.9.
+Cruise speed grows from 75 by 15 per difficulty unit, capped at 500 before bonuses.
+Obstacle spacing starts at 150, decays exponentially with difficulty and bottoms out at 38.
+Group size, enemy/rock health, enemy drift, firing intervals and escort/firing thresholds all use
+that same progression. Every starting value, growth rate, threshold and limit is in Developer Settings.
+No difficulty transition is tied to a numbered wave. A multiplier of zero freezes starting difficulty;
+individual growth/decay controls can also be zero. Wave length controls checkpoints and bonus stretches.
 Shoot drones/rocks and avoid indestructible orange barriers. Outer flight boundaries only constrain steering;
 they are not collision hazards. Path bends are more dramatic visually and require no corrective steering.
 Background stations, rock clusters and satellites are decorative and checked against the curved
@@ -68,6 +73,17 @@ Hitting an enemy immediately retains 55% of forward speed and 67% of the current
 a 2.0x modifier becomes 1.67x. Forward speed recovers over 1.2 seconds; the lost bonus is not restored.
 Speed penalties apply during invincibility and are independent of hull damage immunity.
 Enemy projectiles still cause hull damage but are not physical obstacle/enemy momentum collisions.
+Rocks, orange barriers, tunnel walls and station bulkheads remove 60% of maximum hull per unprotected hit.
+Enemy contact and projectile damage retain their existing values; hit immunity and shields still apply.
+
+FLIGHT INSTRUMENTS
+Lives are a large integer and dog-ship icon at the upper left. Velocity reads NNN KM/S, expanding above 999.
+Two thin 100-degree heat arcs follow the projected player ship, filling from bottom to top on each side.
+Heat glows orange above 60% and red above 90%, returning to pale blue as it cools.
+The wide, thick bottom hull bar has an orange frame and a neon green healthy fill. It smoothly interpolates
+when damaged or repaired, flashes on hits, glows orange at 40% and red at 12%, and returns to green above 40%.
+Sector/wave labels, checkpoint text, bottom instructions, track information and weapon text are removed.
+The upper-right music debug remains. Pause uses translucent brushed metal over the frozen flight.
 
 CANNON AND FOOD PICKUPS
 Infinite ammunition, four cannon tiers (1/2/4/6 barrels), fire-rate and cooling upgrades through IV.
@@ -146,7 +162,7 @@ js/environment.js: bounded motif geometry, decorative scenery, rings and checkpo
 js/music.js: resource-free track selection and unified scheduled music rendering.
 js/sound.js: shared Web Audio ownership, mixing, voices/effects lifecycle and layered explosions.
 js/voices.js: local voice playback and one-speaker queue.
-js/interface.js: HUD, confirmation dialog, menus and checkpoint notices.
+js/interface.js: HUD instruments, confirmation dialog, menus and checkpoint checkmark.
 js/controls.js: main-menu developer overrides, seed, Play Now and complete settings export.
 js/hangar.js: original aligned title animation. js/three-loader.js: registers the pinned CDN engine.
 
@@ -156,12 +172,25 @@ and the selected seed under starhound.developer-settings.v1 in local storage. Ap
 priority over checkpoint rules, including after reload or a crash; checkpoints retain run progress.
 Apply does not launch or restart a wave. Play Now saves the form and immediately launches a fresh
 run at the selected wave with starting equipment and lives, replacing the checkpoint.
+Minimum space between pickups is a distance along the route, shared by scheduled pickups and enemy drops.
+Path opportunities form a seeded grid at this minimum spacing, without bonus-stretch or checkpoint overrides.
+Pickup frequency (0–1) is the probability at each eligible grid slot or enemy kill. Zero disables both
+sources, one uses every opportunity allowed by the gap, and intermediate values give reproducible thinning.
+Accepted pickups reserve their distance even after collection; drops cannot bypass nearby path reservations.
+Default minimum spacing is 500, with frequency 1. Larger gaps reduce density; lower frequency leaves empty slots.
+Existing developer saves and checkpoints migrate to the new fields, retaining seed and run progress.
 Reset Defaults restores authored values in the form; Apply saves them. If storage is blocked, settings
 remain usable for the session and the menu explains that they cannot survive a reload.
 Copy Complete Settings.js exports the entire classic settings script, including overrides and seed.
 If clipboard access is blocked, select/copy the supplied text and replace js/settings.js manually.
 
 VERIFICATION
+node work/qa/difficulty-pickups.cjs verifies continuous difficulty, zero-growth controls, monotonic limits,
+collision recovery, seeded pickup probability, spacing across both sources, actual enemy destruction,
+settings persistence/export, checkpoint history and migration from both earlier checkpoint generations.
+node work/qa/difficulty-pickups-browser.cjs verifies the real developer form, constraint errors, saved
+controls after reload, zero/full pickup frequency, minimum gaps and Play Now/checkpoint compatibility.
+It uses the same local Chrome/Playwright runtime and optional cached /tmp/starhound-three-r160.min.js as route QA.
 node work/qa/pause-redesign.cjs verifies the real browser's minimal manual and centered pause menu at desktop,
 phone and short landscape sizes, focus cycling/activation, frozen session and crash resume, retained checkpoints
 and separate defeat results. Screenshots are saved in output/qa/menus/.

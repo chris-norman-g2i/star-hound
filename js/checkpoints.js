@@ -8,7 +8,7 @@ class WaveCheckpoints {
     this.current=null;this.warning='';
     try{
       const text=window.localStorage.getItem(checkpoint.key);
-      if(text){const value=JSON.parse(text);if(checkpoint.valid(value))this.current=value;else if(value!==null)this.warning='An incompatible checkpoint was ignored.';}
+      if(text){const value=JSON.parse(text);if(checkpoint.valid(value))this.current=value;else if(value!==null){const migrated=checkpoint.migrate(value);if(migrated)this.write(migrated);else this.warning='An incompatible checkpoint was ignored.';}}
       else{const legacy=window.localStorage.getItem(checkpoint.legacyKey);if(legacy){const migrated=checkpoint.migrate(JSON.parse(legacy));if(migrated)this.write(migrated);}}
     }catch(error){this.warning=error instanceof SyntaxError?'A damaged checkpoint was ignored.':'This browser cannot retain checkpoints after closing. Checkpoints still work this session.';}
   }
@@ -28,7 +28,6 @@ class WaveCheckpoints {
     if(s.lives<=0){s.mode='defeat';this.write(null);return s;}
     systems.reset();
     const restored=checkpoint.restore(this.current,{lives:s.lives,elapsed:s.elapsed,bestWave:s.bestWave});
-    restored.notice=`LIFE LOST · CHECKPOINT ${restored.wave} · ${restored.lives} LIVES`;
     this.write(checkpoint.capture(restored));return restored;
   }
 }

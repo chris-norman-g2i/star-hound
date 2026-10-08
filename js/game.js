@@ -36,8 +36,9 @@ function init(){
       if(state!==before)sound.voice('respawn',state);
       else if(state.mode==='defeat'&&view.lastMode!=='defeat')sound.voice('defeat',state);
     }
-    sound.update(state,dt);view.music(sound);view.update(state,titleTime);view.checkpoint(checkpoints);
+    sound.update(state,dt);view.music(sound);
     scene.render(state,state.mode==='paused'?0:dt,titleTime,systems.entities,systems.bullets);
+    view.update(state,titleTime,state.mode==='paused'?0:dt,scene.playerHudAnchor());view.checkpoint(checkpoints);
   }
   async function pause(){
     if(state.mode==='playing'||state.mode==='crashing'){state.resumeMode=state.mode;state.mode='paused';keys.clear();await sound.pause();}

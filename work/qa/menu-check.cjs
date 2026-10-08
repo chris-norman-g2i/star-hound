@@ -1,8 +1,8 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const html=fs.readFileSync('index.html','utf8'),ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(ids.length,new Set(ids).size);
 class Node{
- constructor(id,tag='DIV'){this.id=id;this.tagName=tag;this.children=[];this.listeners={};this.style={};this.dataset={};this.open=false;this.value='';this.classes=new Set();this.classList={add:c=>this.classes.add(c),remove:c=>this.classes.delete(c),toggle:(c,on)=>on?this.classes.add(c):this.classes.delete(c)};}
- getContext(){return null;}
+ constructor(id,tag='DIV'){this.id=id;this.tagName=tag;this.children=[];this.listeners={};this.style={setProperty(name,value){this[name]=value}};this.dataset={};this.open=false;this.value='';this.classes=new Set();this.classList={contains:c=>this.classes.has(c),add:c=>this.classes.add(c),remove:c=>this.classes.delete(c),toggle:(c,on)=>on?this.classes.add(c):this.classes.delete(c)};}
+ getBoundingClientRect(){return {bottom:80};}getContext(){return null;}querySelectorAll(){return [];}
  append(n){this.children.push(n);}replaceChildren(){this.children=[];}setAttribute(){}addEventListener(e,f){(this.listeners[e]??=[]).push(f);}focus(){document.activeElement=this;}blur(){document.activeElement=null;}showModal(){assert(!this.open);this.open=true;}close(){this.open=false;this.emit('close');}checkValidity(){return this.type!=='number'||this.value!==''&&Number.isFinite(Number(this.value))&&Number(this.value)>=Number(this.min)&&Number(this.value)<=Number(this.max);}reportValidity(){return this.checkValidity();}select(){this.selected=true;}
  emit(type,data={}){for(const f of this.listeners[type]||[])f({target:this,...data});}
 }
@@ -12,7 +12,7 @@ let frame;const disk=new Map(),handlers={};const window={innerWidth:1280,innerHe
 const ctx=vm.createContext({window,document,console,navigator:{},requestAnimationFrame:f=>{frame=f},Math,JSON,Number,Float32Array,Uint8Array});
 function load(f){vm.runInContext(fs.readFileSync('js/'+f+'.js','utf8'),ctx,{filename:f});}
 load('settings');load('route');load('music');const ns=window.Starhound;let rendered;
-ns.THREE={Clock:class{getDelta(){return .025;}}};ns.FlightScene=class{clear(){}burst(){}applyTuning(){}resize(){}render(s){rendered=s;}};
+ns.THREE={Clock:class{getDelta(){return .025;}}};ns.FlightScene=class{clear(){}burst(){}applyTuning(){}resize(){}playerHudAnchor(){return {x:640,y:400,diameter:240};}render(s){rendered=s;}};
 ns.SoundEngine=class{
  constructor(){this.enabled=false;this.unlockCalls=0;this.muted=false;this.volumes={music:1,effects:1,voice:1};this.director=new ns.MusicDirector();window.testSound=this;}
  async resume(){}async pause(){}async unlock(){this.unlockCalls++;this.enabled=true;}async toggle(){this.muted=!this.muted;}
@@ -21,7 +21,7 @@ ns.SoundEngine=class{
  get musicStatus(){const r=this.director.request;return {name:ns.settings.music.tracks[r?.id]?.name||'Silence',bpm:r?.bpm,preview:r?.preview,locked:!this.enabled};}
  play(){}voice(){}ring(){}dispose(){}
 };
-for(const f of ['systems','hangar','interface','checkpoints','controls','game'])load(f);ns.Game.init();assert.equal(window.testSound.unlockCalls,1);assert.equal(rendered.mode,'title');assert.equal(nodes['wave-dots'].children.length,4);assert.equal(nodes['checkpoint-resume'].disabled,true);
+for(const f of ['systems','hangar','interface','checkpoints','controls','game'])load(f);ns.Game.init();assert.equal(window.testSound.unlockCalls,1);assert.equal(rendered.mode,'title');assert.equal(nodes['lives-text'].textContent,'3');assert.equal(nodes['checkpoint-resume'].disabled,true);
 const key=(code,target=document.body)=>{for(const f of handlers.keydown)f({code,target,repeat:false,preventDefault(){}});};
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 (async()=>{

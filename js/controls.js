@@ -7,7 +7,7 @@ class FlightControls {
     this.dialog=document.getElementById('tuning-dialog');this.status=document.getElementById('tuning-status');
     this.seed=document.getElementById('seed-input');this.seed.value=tuning.seed;
     const grid=document.getElementById('tuning-fields');
-    for(const [path,label,min,max,step] of tuning.fields){
+    for(const {path,label,min,max,step} of tuning.fields){
       const row=document.createElement('label');row.textContent=label;
       const input=document.createElement('input');input.type='number';input.min=min;input.max=max;input.step=step;input.value=this.defaults[path];input.setAttribute('aria-label',label);row.append(input);grid.append(row);this.inputs.set(path,input);
     }
@@ -31,8 +31,8 @@ class FlightControls {
   apply(){
     if(Array.from(this.inputs.values()).some(input=>!input.reportValidity()))return false;
     const values=Object.fromEntries(Array.from(this.inputs,([path,input])=>[path,Number(input.value)]));
-    const weights=values['route.tunnelWeight']+values['route.stationWeight']+values['route.cruiserWeight'];
-    if(weights<=0){this.status.textContent='Give at least one motif a frequency weight above zero.';return false;}
+    const error=tuning.validationError(values);
+    if(error){this.status.textContent=error;return false;}
     const saved=tuning.save(values,this.seed.value);this.actions.applied();
     this.status.textContent=saved?'Settings saved. New flights and checkpoint resumes use these values.':'Settings applied for this session. Browser storage is unavailable; these settings cannot survive a reload.';return true;
   }

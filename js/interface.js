@@ -1,11 +1,16 @@
 (function(namespace){
 'use strict';
-const {ui,math,race}=namespace.settings;
+const {ui,math,hull}=namespace.settings;
 class FlightInterface {
   constructor(){
-    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','sector','sector-name','wave','wave-dots','hull-fill','hull-text','lives-text','speed','speed-fill','effect-label','heat-fill','cannon-name','weapon-status','upgrade-status','announcement','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','checkpoint-note','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','track-name','music-debug','music-debug-name','music-debug-status','tuning-dialog','options-button','options-dialog','close-options'])this.nodes[id]=document.getElementById(id);
+    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','hull-instrument','hull-meter','hull-fill','hull-text','lives','lives-text','speed','speed-charge','speed-fill','ship-heat','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','checkpoint-note','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','music-debug','music-debug-name','music-debug-status','tuning-dialog','options-button','options-dialog','close-options'])this.nodes[id]=document.getElementById(id);
     for(const id of ['pause-menu','flight-results','results-home'])this.nodes[id]=document.getElementById(id);
-    for(let i=0;i<race.wavesPerSector;i++)this.nodes['wave-dots'].append(document.createElement('i'));
+    this.heatFills=Array.from(this.nodes['ship-heat'].querySelectorAll('.heat-fill'));
+    for(const selector of ['.heat-track','.heat-fill'])this.nodes['ship-heat'].querySelectorAll(selector).forEach((path,index)=>path.setAttribute('d',ui.heatArcPath(index===0?-1:1)));
+    const heat=ui.hud.heat,health=ui.hud.hull;
+    for(const [name,color] of Object.entries({normal:heat.paleBlue,warning:heat.orange,critical:heat.red}))this.nodes['ship-heat'].style.setProperty('--'+name,color);
+    for(const [name,color] of Object.entries({normal:health.green,warning:health.orange,critical:health.red}))this.nodes['hull-instrument'].style.setProperty('--'+name,color);
+    this.hullState=null;this.displayHull=hull.maxIntegrity;this.previousHull=hull.maxIntegrity;this.hullFlashRemaining=0;
     // Native dialog backdrops target the dialog itself. Check coordinates so padding,
     // form controls, and drags that started inside never count as outside clicks.
     for(const dialog of document.querySelectorAll('dialog')){
@@ -22,7 +27,6 @@ class FlightInterface {
   }
   music(sound){
     const status=sound.musicStatus,n=this.nodes;
-    n['track-name'].textContent=status.name;
     n['music-debug'].classList.toggle('hidden',!namespace.settings.music.debug.enabled);
     n['music-debug-name'].textContent=status.name;
     const flags=[status.preview?'PREVIEW':'AUTO'];
@@ -32,6 +36,7 @@ class FlightInterface {
     else if(status.paused)flags.push('PAUSED');
     else if(status.finished)flags.push('FINISHED');
     n['music-debug-status'].textContent=flags.join(' · ');
+    n.hud.style.setProperty('--pause-top',n['music-debug'].classList.contains('hidden')?'':n['music-debug'].getBoundingClientRect().bottom+ui.hud.debugGapPx+'px');
   }
   checkpoint(store){
     const n=this.nodes,c=store.current;const label=store.warning||(c?`CHECKPOINT ${c.wave} · ${c.lives} LIVES · NEW FLIGHT CLEARS PROGRESS`:'3 LIVES · ENDLESS WAVES · NO CHECKPOINT YET');
@@ -45,19 +50,38 @@ class FlightInterface {
     this.nodes['new-run-note'].textContent=`Start a new flight, or resume your wave ${store.current.wave} checkpoint.`;
     this.nodes['new-run-dialog'].showModal();this.nodes['resume-checkpoint-dialog'].focus();
   }
-  update(s,titleTime=0){
+  update(s,titleTime=0,dt=0,shipAnchor=null){
     this.hangar.update(titleTime,s.mode==='title');
     if(this.lastMode!==s.mode){this.lastMode=s.mode;this.mode(s);}
-    const n=this.nodes;n.sector.textContent=ui.sectorText(s);n['sector-name'].textContent=race.sectorName(s.sector);n.wave.textContent=math.pad(s.wave);
-    Array.from(n['wave-dots'].children).forEach((dot,index)=>dot.classList.toggle('active',index<=race.waveInSector(s.wave)));
-    n['hull-fill'].style.width=math.percent(s.hull);n['hull-text'].textContent=math.percent(s.hull);
-    n['lives-text'].textContent=`${s.lives} LIVES · CHECKPOINT ${s.checkpointWave}`;n.speed.textContent=ui.speedText(s);
-    n['speed-fill'].style.width=ui.chargeText(s);n['effect-label'].textContent=ui.effect(s);
+    const n=this.nodes;this.updateHull(s,dt);
+    n['lives-text'].textContent=String(s.lives);n.lives.setAttribute('aria-label',`${s.lives} lives remaining`);n.speed.textContent=ui.speedText(s);
+    n['speed-fill'].style.width=ui.chargeText(s);n['speed-charge'].setAttribute('aria-valuenow',Math.round(s.charge));
     n['checkpoint-success'].classList.toggle('visible',s.checkpointCelebration>0&&s.mode==='playing');
-    n['heat-fill'].style.width=math.percent(s.weapon.heat);n['cannon-name'].textContent=ui.cannonText(s.weapon);
-    n['weapon-status'].textContent=ui.heatText(s.weapon);n['upgrade-status'].textContent=ui.upgrades(s.weapon);
-    n.announcement.textContent=s.notice;n.announcement.classList.toggle('visible',s.noticeTime>0);
+    this.updateHeat(s,shipAnchor);
     n['pickup-toast'].textContent=s.toast;n['pickup-toast'].classList.toggle('visible',s.toastTime>0);
+  }
+  updateHull(s,dt){
+    const n=this.nodes,config=ui.hud.hull;
+    if(this.hullState!==s){this.hullState=s;this.previousHull=s.hull;this.hullFlashRemaining=0;}
+    if(s.hull<this.previousHull)this.hullFlashRemaining=config.flashSeconds;
+    else this.hullFlashRemaining=math.decrement(this.hullFlashRemaining,dt);
+    this.previousHull=s.hull;
+    this.displayHull=math.damp(this.displayHull,s.hull,config.lerpRate,dt);
+    if(Math.abs(this.displayHull-s.hull)<config.snapTolerance)this.displayHull=s.hull;
+    n['hull-fill'].style.width=`${this.displayHull/hull.maxIntegrity*ui.hud.percentScale}%`;
+    n['hull-text'].textContent=math.percent(s.hull/hull.maxIntegrity*ui.hud.percentScale);
+    n['hull-meter'].setAttribute('aria-valuenow',s.hull/hull.maxIntegrity*ui.hud.percentScale);
+    n['hull-instrument'].dataset.level=ui.hullLevel(s.hull);
+    n['hull-instrument'].style.setProperty('--hit-flash',ui.hullFlash(this.hullFlashRemaining));
+  }
+  updateHeat(s,anchor){
+    const node=this.nodes['ship-heat'],heat=s.weapon.heat,config=ui.hud.heat;
+    node.dataset.level=ui.heatLevel(heat);node.setAttribute('aria-valuenow',Math.round(heat));
+    node.setAttribute('aria-valuetext',s.weapon.overheated?'Overheated, cooling':`${Math.round(heat)}%`);
+    for(const path of this.heatFills){path.style.strokeDasharray=`${heat/config.max*ui.hud.percentScale} ${ui.hud.percentScale}`;path.style.opacity=heat>0?'1':'0';}
+    const visible=anchor&&s.mode!=='title'&&s.mode!=='crashing'&&s.mode!=='defeat'&&!(s.mode==='paused'&&s.resumeMode==='crashing');
+    node.classList.toggle('hidden',!visible);
+    if(visible){node.style.left=anchor.x+'px';node.style.top=anchor.y+'px';node.style.width=anchor.diameter+'px';node.style.height=anchor.diameter+'px';node.style.setProperty('--heat-line-width',config.lineWidthPx*config.svgSize/anchor.diameter);}
   }
   mode(s){
     const n=this.nodes;document.body.classList.toggle('playing',s.mode!=='title');

@@ -15,7 +15,7 @@ assert.equal(reloaded.settings.race.waveLength,1500);assert.equal(reloaded.setti
 const restored=reloaded.settings.checkpoint.restore({...saved,wave:3,bestWave:3});
 assert.equal(restored.seed,'NEW-SEED');assert.equal(restored.distance,3000);assert.equal(reloaded.settings.race.waveLength,1500);
 assert(reloaded.settings.checkpoint.valid(saved));assert(!reloaded.settings.checkpoint.valid({...saved,rules:{}}));
-const malformed=setup({getItem(){return '{broken'},setItem(){}});assert.equal(malformed.settings.race.waveLength,1100);
+const malformed=setup({getItem(){return '{broken'},setItem(){}});assert.equal(malformed.settings.race.waveLength,malformed.settings.tuning.defaults['race.waveLength']);
 const blocked=setup({getItem(){throw Error('blocked')},setItem(){throw Error('blocked')}});
 assert.equal(blocked.settings.tuning.save({...blocked.settings.tuning.values(),'race.waveLength':1400},'SESSION'),false);
 blocked.settings.tuning.load();assert.equal(blocked.settings.race.waveLength,1400);
@@ -30,13 +30,13 @@ const sound={play(){},voice(){},ring(chain){this.tones.push(chain)},tones:[]};
 // Tunnel walls hurt and reduce momentum once per contact, including while shielded.
 const tunnel=plan.segments.find(s=>s.kind==='tunnel'),flight=race.state('MOTIFS');
 flight.mode='playing';flight.distance=tunnel.start+20;flight.previousDistance=flight.distance-1;flight.player.x=9.7;flight.protection=0;
-flight.motion.ringBonus=.4;flight.speed=100;plan.collide(flight,sound);assert.equal(flight.hull,76);assert.equal(flight.speed,0);assert.equal(flight.motion.ringBonus,0);
+flight.motion.ringBonus=.4;flight.speed=100;plan.collide(flight,sound);assert.equal(flight.hull,40);assert.equal(flight.speed,0);assert.equal(flight.motion.ringBonus,0);
 assert(Math.hypot(flight.player.x,flight.player.y)<route.tunnel.radius);flight.player.x=9.7;flight.speed=45;plan.collide(flight,sound);assert.equal(flight.speed,45);
-flight.player.x=0;plan.collide(flight,sound);flight.player.x=9.7;flight.invincible=7;plan.collide(flight,sound);assert.equal(flight.speed,0);assert.equal(flight.hull,76);
+flight.player.x=0;plan.collide(flight,sound);flight.player.x=9.7;flight.invincible=7;plan.collide(flight,sound);assert.equal(flight.speed,0);assert.equal(flight.hull,40);
 // A station's front wall cannot be flown through; steering into its aperture releases it.
 const station=plan.segments.find(s=>s.kind==='station'),portal=station.portals[0],ship=race.state('MOTIFS');
 ship.mode='playing';ship.protection=0;ship.previousDistance=portal.d-2;ship.distance=portal.d;ship.player.x=portal.x+route.station.openingHalfWidth+1;ship.player.y=portal.y;
-plan.collide(ship,sound);assert(ship.distance<portal.d-route.station.portalDepth);assert.equal(ship.hull,76);
+plan.collide(ship,sound);assert(ship.distance<portal.d-route.station.portalDepth);assert.equal(ship.hull,40);
 ship.player.x=portal.x;ship.player.y=portal.y;ship.previousDistance=ship.distance;ship.distance=portal.d;
 assert.equal(plan.contact(ship),null);
 assert(plan.gateProfile(tunnel.start+20).rx<route.tunnel.radius);
@@ -57,7 +57,7 @@ for(const segment of plan.segments.filter(s=>s.kind==='cruiser'))assert(['left',
 const ringPlan=new ns.RoutePlan('RINGS'),rings=ringPlan.visibleRings(0,900).filter(r=>r.series===0);assert(rings.length>=3&&rings.length<=7);
 const s=race.state('RINGS');s.mode='playing';const [first,second,third]=rings;
 s.previousDistance=first.d-1;s.distance=first.d+1;s.player={x:first.x,y:first.y,vx:0,vy:0};ringPlan.crossRings(s,s.player,sound);
-assert.equal(first.result,'passed');close(s.motion.ringBonus,speedRings.bonusPerRing);assert(s.speed>race.baseSpeed(s.wave));assert.equal(sound.tones.at(-1),1);
+assert.equal(first.result,'passed');close(s.motion.ringBonus,speedRings.bonusPerRing);assert(s.speed>race.cruiseSpeed(s.distance));assert.equal(sound.tones.at(-1),1);
 s.previousDistance=second.d-1;s.distance=second.d+1;s.player.x=second.x+speedRings.radius+1;s.player.y=second.y;ringPlan.crossRings(s,s.player,sound);assert.equal(second.result,'missed');close(s.motion.ringBonus,speedRings.bonusPerRing);assert.equal(s.hull,100);
 s.previousDistance=third.d-1;s.distance=third.d+1;s.player.x=third.x;s.player.y=third.y;ringPlan.crossRings(s,s.player,sound);assert.equal(sound.tones.at(-1),1);
 const bonus=s.motion.ringBonus;propulsion.advance(s,1,new Set());assert(s.motion.ringBonus<bonus);
