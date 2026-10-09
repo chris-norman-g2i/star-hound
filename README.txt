@@ -51,13 +51,47 @@ No difficulty transition is tied to a numbered wave. A multiplier of zero freeze
 individual growth/decay controls can also be zero. Wave length controls checkpoints and bonus stretches.
 Shoot drones/rocks and avoid indestructible orange barriers. Outer flight boundaries only constrain steering;
 they are not collision hazards. Path bends are more dramatic visually and require no corrective steering.
-Background stations, rock clusters and satellites are decorative and checked against the curved
+Background stations, asteroid clusters and satellites are decorative and checked against the curved
 flight corridor, with at least 28 units of clearance beyond both the corridor and the object's bounds.
 A seeded distance plan alternates open space (60% of route distance by default) with circular tunnels,
 fly-through stations and long cruisers. Checkpoint outlines fit the current enclosure or station door. Tunnel walls and offset station doors cause collisions. Stations
 have industrial bulkheads and crates; their entry and exit approaches stay clear of random encounters.
+Station openings can reach the edges of the playable track while remaining fully contained. Openings
+start 30% larger, then shrink with continuous difficulty toward the previous dimensions as their minimum.
+Developer Settings controls the starting size, minimum dimensions, shrink rate and wall chains. Entry
+walls can form seeded chains of up to three. Chained openings shift only a short, reachable distance;
+spacing accounts for cruise speed, a speed allowance, reaction time and steering response. Independent
+exit openings are also constrained by reachable steering distance. Door approaches remain clear of other
+station obstacles and random encounters. Tunnel window banks are true cutouts, including gaps in their
+ribs, with no translucent faces or luminous strips across the openings.
 Cruisers are non-colliding polyhedral sections following the path on the left, right or bottom.
-Background rocks share a color within each cluster. Motif lengths, weights and open share are tunable.
+Background asteroids share a color within each cluster and spawn only in open-space segments.
+Developer Settings provides ranges for quantity, individual asteroid base radius, size variability,
+distance of the cluster center from the track, and tumble and velocity at both asteroid and cluster level.
+Each asteroid independently multiplies its sampled base radius by size variability (default 0.6–1.6x).
+Higher-frequency icospheres receive unique, seeded bulges, dents and subtle surface grain. Each shape is
+normalized to a unit outer radius before sizing, so irregular surfaces preserve placement clearance.
+The sampled size and shape stay fixed for the asteroid's lifetime. Surface
+spacing sets the minimum gap between every pair of asteroids at spawn. Each asteroid samples random
+directions around the others' center of mass and chooses the closest available position, producing a
+compact, organic 3D arrangement. Mass is estimated from each asteroid's radius cubed; the final layout is
+centered on its actual center of mass. Sizes and spacing determine the layout; there is no cluster
+scale. A sampled center distance and a random angle place the cluster
+around the track, without separate X/Y/Z controls. Spawn spacing determines how far the player travels
+between opportunities; frequency is the seeded probability of a cluster at each opportunity.
+Clusters are created exactly 1,000 units ahead of the current player position, including after a
+checkpoint start. They fade in over the first 100 units of approach, and the camera reaches beyond
+the spawn distance. Missed or excluded opportunities are never backfilled close to the player.
+Each cluster and asteroid samples its values only at spawn, including a fixed random axis for tumble
+and direction for velocity. Tumble is radians per second; velocity is distance units per second.
+Local asteroid motion is relative to the cluster. Surface spacing prevents initial overlap; independent
+motion can subsequently bring asteroids together. Equal range endpoints give a fixed value; zero
+motion freezes the respective animation. Pausing freezes elapsed gameplay time and motion.
+Clusters remain alive until their entire bounding sphere is at least 180 units behind the camera's
+view plane. Existing clusters do not expire by age or disappear when their motion crosses a motif
+boundary. Motif lengths, weights and open share are tunable.
+Background stars stay 800–1,600 units ahead of the scene origin, preventing excessive steering parallax.
+Camera-relative speed streaks stay at least 300 units away and travel at one-quarter of flight speed.
 Speed rings appear in offset hexagonal series of 3–7. Their edges never damage the ship. Each successful
 pass changes the ring color, raises the next chime and adds a capped speed bonus that gradually decays.
 A miss resets the chime sequence while preserving earned speed; collisions reduce or clear ring bonuses.
@@ -81,7 +115,10 @@ Lives are a large integer and dog-ship icon at the upper left. Velocity reads NN
 Two thin 100-degree heat arcs follow the projected player ship, filling from bottom to top on each side.
 Heat glows orange above 60% and red above 90%, returning to pale blue as it cools.
 The wide, thick bottom hull bar has an orange frame and a neon green healthy fill. It smoothly interpolates
-when damaged or repaired, flashes on hits, glows orange at 40% and red at 12%, and returns to green above 40%.
+when damaged or repaired, flashes on hits, pulses orange at 40% and red at 12%, and returns to green above 40%.
+The warning glow fades fully off between pulses: one cycle every five seconds at 40%, accelerating to
+two cycles per second near zero. Hull heals 1% every two damage-free seconds of active play; taking damage
+restarts that interval. Pausing and crash sequences do not advance healing.
 Sector/wave labels, checkpoint text, bottom instructions, track information and weapon text are removed.
 The upper-right music debug remains. Pause uses translucent brushed metal over the frozen flight.
 
@@ -184,37 +221,12 @@ remain usable for the session and the menu explains that they cannot survive a r
 Copy Complete Settings.js exports the entire classic settings script, including overrides and seed.
 If clipboard access is blocked, select/copy the supplied text and replace js/settings.js manually.
 
-VERIFICATION
-node work/qa/difficulty-pickups.cjs verifies continuous difficulty, zero-growth controls, monotonic limits,
-collision recovery, seeded pickup probability, spacing across both sources, actual enemy destruction,
-settings persistence/export, checkpoint history and migration from both earlier checkpoint generations.
-node work/qa/difficulty-pickups-browser.cjs verifies the real developer form, constraint errors, saved
-controls after reload, zero/full pickup frequency, minimum gaps and Play Now/checkpoint compatibility.
-It uses the same local Chrome/Playwright runtime and optional cached /tmp/starhound-three-r160.min.js as route QA.
-node work/qa/pause-redesign.cjs verifies the real browser's minimal manual and centered pause menu at desktop,
-phone and short landscape sizes, focus cycling/activation, frozen session and crash resume, retained checkpoints
-and separate defeat results. Screenshots are saved in output/qa/menus/.
-node work/qa/menu-check.cjs checks menu lifecycle, checkpoint choices, settings and keyboard navigation.
-node work/qa/route-check.cjs verifies persisted overrides, checkpoint precedence, deterministic route share,
-tunnel/portal/bulkhead collisions, cruiser sides, swept ring hits/misses, pitch reset and speed decay.
-node work/qa/route-browser.cjs verifies real menus, storage reload, Play Now, motif geometry, color-grouped
-rocks and hexagonal ring feedback; screenshots are saved in output/qa/route/.
-node work/qa/music-check.cjs verifies original score parity, every catalog entry, preview/playlist behavior,
-title/defeat roles and uninterrupted invincibility, exported settings, one shared scheduler, mute/ducking, paused previews and cleanup.
-An optional argument naming the original Stardog export verifies all nine imported arrangements and synthesis
-parameters against that reference file over each complete loop.
-node work/qa/redesign-rules.cjs checks collision penalties/immunity, 1.2-second recovery, all firing upgrades,
-overheat recovery at multiple frame intervals, guaranteed wave saves, all three 2.6-second crashes and rollback,
-quarter-frequency invincibility on paths/drops, seven food models, tempo scaling, scenery clearance, seed replay,
-blocked storage, legacy checkpoint import, exhausted-life clearing and complete settings export.
-node work/qa/redesign-browser.cjs exercises the real Three.js renderer and Web Audio in desktop Chrome:
-title autoplay and browser-policy fallback, all 16 P previews, one-shot fanfare, five-track switching, confirmation-dialog resume,
-equal buttons, HUD placement, Options volumes/mute, rainbow
-restoration, food/gate rendering, blur shaders, dog ejection, pausing and delayed respawn/defeat.
-Browser checks also render explosion audio offline to compare bass/loudness with the original effect, and
-launch the game directly from file:// at 1280x720. They use the host's bundled Playwright and Chrome,
-and can use a temporary cached r160 engine.
-Screenshots are saved in output/qa/redesign/. Historical QA scripts target their earlier revisions.
+DEVELOPMENT CLEANUP
+The temporary work/qa/ directory was removed on 2026-10-08. It held historical game snapshots,
+standalone development checks and generated comparison images; the playable game does not use them.
+Previously generated screenshots remain in output/qa/ for reference.
+The sites/ directory is a separate publishing checkout containing the hosted game snapshot.
+
 
 DEPENDENCIES AND ASSETS
 Three.js r160 classic CDN: https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js (MIT).

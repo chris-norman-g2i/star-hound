@@ -10,7 +10,7 @@ class FlightInterface {
     const heat=ui.hud.heat,health=ui.hud.hull;
     for(const [name,color] of Object.entries({normal:heat.paleBlue,warning:heat.orange,critical:heat.red}))this.nodes['ship-heat'].style.setProperty('--'+name,color);
     for(const [name,color] of Object.entries({normal:health.green,warning:health.orange,critical:health.red}))this.nodes['hull-instrument'].style.setProperty('--'+name,color);
-    this.hullState=null;this.displayHull=hull.maxIntegrity;this.previousHull=hull.maxIntegrity;this.hullFlashRemaining=0;
+    this.hullState=null;this.displayHull=hull.maxIntegrity;this.previousHull=hull.maxIntegrity;this.hullFlashRemaining=0;this.hullPulsePhase=0;
     // Native dialog backdrops target the dialog itself. Check coordinates so padding,
     // form controls, and drags that started inside never count as outside clicks.
     for(const dialog of document.querySelectorAll('dialog')){
@@ -62,7 +62,7 @@ class FlightInterface {
   }
   updateHull(s,dt){
     const n=this.nodes,config=ui.hud.hull;
-    if(this.hullState!==s){this.hullState=s;this.previousHull=s.hull;this.hullFlashRemaining=0;}
+    if(this.hullState!==s){this.hullState=s;this.previousHull=s.hull;this.hullFlashRemaining=0;this.hullPulsePhase=0;}
     if(s.hull<this.previousHull)this.hullFlashRemaining=config.flashSeconds;
     else this.hullFlashRemaining=math.decrement(this.hullFlashRemaining,dt);
     this.previousHull=s.hull;
@@ -71,7 +71,10 @@ class FlightInterface {
     n['hull-fill'].style.width=`${this.displayHull/hull.maxIntegrity*ui.hud.percentScale}%`;
     n['hull-text'].textContent=math.percent(s.hull/hull.maxIntegrity*ui.hud.percentScale);
     n['hull-meter'].setAttribute('aria-valuenow',s.hull/hull.maxIntegrity*ui.hud.percentScale);
-    n['hull-instrument'].dataset.level=ui.hullLevel(s.hull);
+    const level=ui.hullLevel(s.hull);
+    this.hullPulsePhase=level==='normal'?0:(this.hullPulsePhase+dt*ui.hullPulseRate(s.hull))%1;
+    n['hull-instrument'].dataset.level=level;
+    n['hull-instrument'].style.setProperty('--hull-pulse',level==='normal'?0:ui.hullPulse(this.hullPulsePhase));
     n['hull-instrument'].style.setProperty('--hit-flash',ui.hullFlash(this.hullFlashRemaining));
   }
   updateHeat(s,anchor){

@@ -1,3 +1,6 @@
+const SHIP_MOVEMENT_Y = 9.0;
+const SHIP_MOVEMENT_X = 12.0;
+
 // STARHOUND complete classic settings. Paste over js/settings.js.
 (function configure(global, overrides) {
 'use strict';
@@ -46,12 +49,14 @@ const math = ({
 
 const tunnel = ({
   depth:540,
+  bounds:{halfWidth:SHIP_MOVEMENT_X,halfHeight:SHIP_MOVEMENT_Y},
   center(d) { return {x: Math.sin(d / 360) * 27 + Math.sin(d / 1100) * 32,
     y: Math.sin(d / 480 + .7) * 17 + Math.sin(d / 1500) * 21}; },
   world(x, y, d, origin) { const a = this.center(d), b = this.center(origin);
     return [x + a.x - b.x, y + a.y - b.y, origin - d]; },
   constrain(p) {
-    p.x = math.clamp(p.x, -9.7, 9.7); p.y = math.clamp(p.y, -5.7, 5.7);
+    p.x = math.clamp(p.x, -this.bounds.halfWidth, this.bounds.halfWidth);
+    p.y = math.clamp(p.y, -this.bounds.halfHeight, this.bounds.halfHeight);
   },
 });
 
@@ -65,7 +70,18 @@ const difficulty = {
 
 const hull = {
   maxIntegrity:100,obstacleDamageFraction:.6,hitImmunitySeconds:1.4,
+  recovery:{fraction:.01,intervalSeconds:2,timeToleranceSeconds:1e-9},
   get obstacleDamage(){return this.maxIntegrity*this.obstacleDamageFraction;},
+  advance(s,dt) {
+    if(s.hull<=0||s.hull>=this.maxIntegrity){s.hullRecoverySeconds=0;return;}
+    const config=this.recovery;
+    s.hullRecoverySeconds+=dt;
+    const ticks=Math.floor((s.hullRecoverySeconds+config.timeToleranceSeconds)/config.intervalSeconds);
+    if(ticks>0){
+      s.hull=Math.min(this.maxIntegrity,s.hull+ticks*this.maxIntegrity*config.fraction);
+      s.hullRecoverySeconds=Math.max(0,s.hullRecoverySeconds-ticks*config.intervalSeconds);
+    }
+  },
 };
 
 const race = ({
@@ -90,12 +106,13 @@ const race = ({
   advance(s,dt,keys) {
     s.elapsed+=dt;s.previousDistance=s.distance;
     for(const key of ['invincible','protection','turbo','hurt','toastTime','checkpointCelebration'])s[key]=math.decrement(s[key],dt);
+    hull.advance(s,dt);
     propulsion.advance(s,dt,keys);
     s.distance+=s.speed*dt;
     s.wave=this.waveAt(s.distance);s.sector=this.sectorAt(s.wave);s.bestWave=Math.max(s.bestWave,s.wave);
   },
   state(seed='GOODBOY') { return {mode:'title',seed,distance:0,previousDistance:0,elapsed:0,wave:1,bestWave:1,sector:0,
-    speed:this.startSpeed,charge:45,hull:hull.maxIntegrity,lives:this.startLives,invincible:0,protection:0,turbo:0,hurt:0,boosting:false,
+    speed:this.startSpeed,charge:45,hull:hull.maxIntegrity,hullRecoverySeconds:0,lives:this.startLives,invincible:0,protection:0,turbo:0,hurt:0,boosting:false,
     score:0,kills:0,pickups:0,nextSpawn:this.encounterStart(1),nextPickup:this.pickupStart(1),pickupDistances:[],
     motion:propulsion.state(),crashTime:0,checkpointCelebration:0,checkpointWave:1,toast:'',toastTime:0,
     player:{x:0,y:0,vx:0,vy:0},weapon:weapon.state()}; },
@@ -103,7 +120,7 @@ const race = ({
     wave=Math.max(1,Math.floor(wave));s.wave=wave;s.sector=this.sectorAt(wave);s.bestWave=Math.max(s.bestWave,wave);
     s.distance=this.checkpointDistance(wave);s.previousDistance=s.distance;s.speed=this.cruiseSpeed(s.distance);
     s.nextSpawn=this.encounterStart(wave);s.nextPickup=this.pickupStart(wave);s.pickupDistances=[];
-    s.hull=hull.maxIntegrity;s.protection=this.respawnProtection;s.invincible=0;s.turbo=0;s.hurt=0;s.boosting=false;
+    s.hull=hull.maxIntegrity;s.hullRecoverySeconds=0;s.protection=this.respawnProtection;s.invincible=0;s.turbo=0;s.hurt=0;s.boosting=false;
     s.motion=propulsion.state();s.crashTime=0;s.checkpointCelebration=0;
     s.player={x:0,y:0,vx:0,vy:0};weapon.resetHeat(s.weapon);s.mode='playing';
   },
@@ -195,7 +212,7 @@ const checkpoint = {
       (c.pickupDistances===undefined||Array.isArray(c.pickupDistances)&&c.pickupDistances.every(d=>Number.isFinite(d)&&d>=0))&&tuning.validCheckpoint(c.rules);
   },
   restore(c,continuation={}) {
-    tuning.load();tuning.apply({...tuning.defaults,...c.rules,...tuning.saved?.values});
+    tuning.load();tuning.apply({...tuning.defaults,...tuning.projectValues(c.rules),...tuning.saved?.values});
     const s=race.state(tuning.saved?tuning.seed:c.seed);
     for(const key of ['lives','charge','elapsed','bestWave','score','kills','pickups'])s[key]=c[key];
     s.weapon.tier=c.tier;s.weapon.fireLevel=c.fireLevel;s.weapon.coolLevel=c.coolLevel;
@@ -220,7 +237,7 @@ const flight = ({
   },
   damage(s, amount) {
     if(s.invincible > 0 || s.protection > 0 || s.hurt > 0) return false;
-    s.hull = Math.max(0,s.hull - amount); s.hurt = hull.hitImmunitySeconds;
+    s.hull = Math.max(0,s.hull - amount); s.hurt = hull.hitImmunitySeconds;s.hullRecoverySeconds=0;
     return true;
   },
   shipPose(s) { return {position:[s.player.x,s.player.y,0],rotation:[-s.player.vy * .014, -s.player.vx * .006, -s.player.vx * .025],
@@ -500,12 +517,24 @@ const gfx = ({
     lightAlpha(index,phase) {return [.016,.021,.028,.031,.026,.019,.013,.014][(index+phase)%this.frames];},
   },
   clear:0x090f16,fogDensity:.0022,exposure:1.15,maxPixelRatio:1.75,
-  camera:{fov:63,near:.1,far:650,titlePosition:[5,5.6,15],titleLook:[1.6,.1,0],flightPosition:[0,3.2,12],flightLook:[0,1,-60]},
+  camera:{fov:63,near:.1,far:2000,titlePosition:[5,5.6,15],titleLook:[1.6,.1,0],flightPosition:[0,3.2,12],flightLook:[0,1,-60]},
   lighting:{ambient:1.6,key:3.5,rim:4.2,keyPosition:[-6,12,8],rimPosition:[9,3,-4]},
   particle:{capacity:1400,emissionRate:95,smokeLife:.9,plasmaLife:.24,explosionLife:1.25,
     smokeColors:[0x8295a5,0xb4d1cc,0x647585],plasmaColors:[0xffd69a,0xff8a43,0x99fff1],explosionColors:[0xff754d,0xffcf84,0xeaf4e8]},
   starCount:220,
-  stars() {const a=new Float32Array(this.starCount*3);for(let i=0;i<this.starCount;i++)a.set([math.visualRandom(-180,180),math.visualRandom(-95,95),math.visualRandom(-420,20)],i*3);return a;},
+  starField:{depth:{min:800,max:1600},horizontalSlope:1.2,verticalSlope:.75},
+  stars() {
+    const positions=new Float32Array(this.starCount*3),field=this.starField;
+    for(let index=0;index<this.starCount;index++){
+      const depth=math.visualRandom(field.depth.min,field.depth.max);
+      positions.set([
+        math.visualRandom(-field.horizontalSlope,field.horizontalSlope)*depth,
+        math.visualRandom(-field.verticalSlope,field.verticalSlope)*depth,
+        -depth,
+      ],index*3);
+    }
+    return positions;
+  },
   particleAt(kind,x,y,d) {
     const cfg=this.particle,firework=kind==='firework',burst=kind==='explosion'||firework;
     const life=kind==='smoke'?cfg.smokeLife:kind==='plasma'?cfg.plasmaLife:firework?1.7:cfg.explosionLife;
@@ -536,6 +565,7 @@ const ui = ({
     heat:{max:100,warningPercent:60,criticalPercent:90,arcDegrees:100,svgSize:100,svgRadius:44,
       radiusWorld:3.25,minDiameterPx:132,lineWidthPx:2,paleBlue:'#a6dcf4',orange:'#ff9a45',red:'#ff453e'},
     hull:{warningPercent:40,criticalPercent:12,lerpRate:9,snapTolerance:.01,flashSeconds:.65,
+      pulse:{slowPeriodSeconds:5,fastPeriodSeconds:.5},
       flashCyclesPerSecond:6,flashBase:.12,flashStrength:.8,green:'#8effb0',orange:'#ff9a45',red:'#ff453e'},
   },
   menus:{
@@ -553,6 +583,11 @@ const ui = ({
   chargeText(s) {return math.percent(s.charge);},
   heatLevel(heat) {return heat>this.hud.heat.criticalPercent?'critical':heat>this.hud.heat.warningPercent?'warning':'normal';},
   hullLevel(integrity) {const percent=integrity/hull.maxIntegrity*this.hud.percentScale;return percent<=this.hud.hull.criticalPercent?'critical':percent<=this.hud.hull.warningPercent?'warning':'normal';},
+  hullPulseRate(integrity) {
+    const config=this.hud.hull,percent=integrity/hull.maxIntegrity*this.hud.percentScale;
+    return 1/math.mix(config.pulse.fastPeriodSeconds,config.pulse.slowPeriodSeconds,math.clamp(percent/config.warningPercent,0,1));
+  },
+  hullPulse(phase) {return (1-Math.cos(phase*math.tau))/2;},
   heatArcPath(side) {
     const config=this.hud.heat,center=config.svgSize/2,angle=config.arcDegrees/2*Math.PI/180;
     const x=center+side*config.svgRadius*Math.cos(angle),y=config.svgRadius*Math.sin(angle);
@@ -653,7 +688,11 @@ const music = ({
     if(Object.hasOwn(this.playback.roles,s.mode))return this.playback.roles[s.mode];
     return this.playback.playlist[index];
   },
-  tempo(track,s) {const t=this.tracks[track],c=this.tempoScaling;return (t.bpm??this.oneShotBpm)*(this.playback.playlist.includes(track)?1+(math.clamp(s.speed/c.referenceSpeed,c.min,c.max)-1)*c.growth:1);},
+  tempo(track,s) {
+    return this.tracks[track].bpm ?? this.oneShotBpm;
+    // uncomment to enable speed-based track tempo
+    // const t=this.tracks[track],c=this.tempoScaling;return (t.bpm??this.oneShotBpm)*(this.playback.playlist.includes(track)?1+(math.clamp(s.speed/c.referenceSpeed,c.min,c.max)-1)*c.growth:1);
+  },
   transitionStep(id,step,positions) {return positions[id] ?? Math.ceil(step/16)*16;},
   stepSeconds(bpm) {return this.sequence.secondsPerMinute/bpm/this.sequence.stepsPerBeat;},
   frequency(midi) {const p=this.pitch;return p.referenceFrequency*p.octaveRatio**((midi-p.referenceMidi)/p.semitonesPerOctave);},
@@ -796,7 +835,7 @@ music.events = function(id,step,bpm) {return this.arrangers[this.tracks[id].arra
 const renderMath = ({
   starOpacity:.48,
   hemisphere:[0xe5f4f0,0x233341],keyColor:0xffdfc3,rimColor:0x75e5e8,roughness:.65,metalness:.2,emissive:.22,
-  engineOpacity:.85,shieldColor:0xffda7b,shieldOpacity:.35,shieldRadius:1,shieldDetail:1,starColor:0xd4e9e5,starSize:.16,
+  engineOpacity:.85,shieldColor:0xffda7b,shieldOpacity:.35,shieldRadius:1,shieldDetail:1,starColor:0xd4e9e5,starSize:.8,
   particleOpacity:.85,barrierEdgeColor:0xffdfa8,pickupHaloOpacity:.5,pickupHaloSize:1.15,bulletColor:0xa7fff0,hostileColor:0xff6a48,
   emissiveIntensity:.8,geometrySegments:0,
   barrierSize(e) {return [e.rx*2,e.ry*2,e.rz*2];},
@@ -818,6 +857,21 @@ const renderMath = ({
 
 const speedEffects = {
   streakCount:180,streakStart:35,streakFull:200,blurStart:155,blurFull:300,hudStart:240,hudFull:420,
+  stars:{depth:{min:300,max:1200},horizontalSlope:.95,verticalSlope:.65,centerExclusionSlope:.035,
+    travelFraction:.25,minimumLength:.4,baseLength:3,lengthPerSpeed:.11,color:0xbdeeff,opacity:.72},
+  star() {
+    const c=this.stars,depth=math.visualRandom(c.depth.min,c.depth.max);
+    const x=math.visualRandom(-c.horizontalSlope,c.horizontalSlope);
+    const minimumX=c.centerExclusionSlope;
+    return {x:(Math.abs(x)<minimumX?(x<0?-minimumX:minimumX):x)*depth,
+      y:math.visualRandom(-c.verticalSlope,c.verticalSlope)*depth,z:-depth};
+  },
+  advanceStar(star,speed,dt) {
+    const c=this.stars,span=c.depth.max-c.depth.min;
+    star.z+=speed*dt*c.travelFraction;
+    if(star.z>-c.depth.min)star.z=-c.depth.max+(star.z+c.depth.min)%span;
+  },
+  streakLength(speed) {const c=this.stars;return c.minimumLength+this.intensity(speed)*(c.baseLength+speed*c.lengthPerSpeed);},
   intensity(speed) {return math.clamp((speed-this.streakStart)/(this.streakFull-this.streakStart),0,1);},
   blur(speed) {return math.clamp((speed-this.blurStart)/(this.blurFull-this.blurStart),0,1);},
   hudBlur(speed) {return math.clamp((speed-this.hudStart)/(this.hudFull-this.hudStart),0,1)*3;},
@@ -829,28 +883,49 @@ const route = {
   tunnelLength:720,stationLength:420,cruiserLength:1100,
   tileDistance:20,behindDistance:55,contactMargin:.3,contactEpsilon:.01,
   tunnel:{radius:9.5,sides:24,windowGroupTiles:7,windowTiles:3,windowSides:[0,1,5,6,11,12,17,18],
-    ribEveryTiles:4,ribWidth:.22,windowInset:.08},
+    ribEveryTiles:4,ribWidth:.22},
   station:{halfWidth:17,halfHeight:10,openingHalfWidth:3.2,openingHalfHeight:2.5,
-    openingOffsetX:4.5,openingOffsetY:2,portalDepth:1.5,runwayDistance:115,
+    openings:{startScale:1.3,shrinkPerDifficulty:1,edgeChance:.15},
+    chains:{maxWalls:3,frequency:.5,minimumSpacing:90,reactionSeconds:.25,steeringSeconds:.15,
+      speedAllowance:3.5,maxCenterShift:2,groupGap:170},
+    portalDepth:1.5,runwayDistance:115,
     obstacleStart:140,obstacleSpacing:85,obstacleHalfWidth:2.1,obstacleHalfHeight:2.1,obstacleDepth:2,
     obstacleOffsetX:6.5,obstacleOffsetY:2.5,frameWidth:.4,lightWidth:.14,
     panelHeight:5,panelDepth:15,panelThickness:.35,panelInset:.2,
-    moduleOffset:23,moduleScale:[7,6,10],moduleY:3,armScale:[12,1.5,2],
+    moduleOffset:23,moduleScale:[7,6,10],moduleY:3,armCrossSection:[1.5,2],
     exteriorPanelScale:[9,12,.6],exteriorPanelOffset:[28,-3,2],
-    domeScale:[6,4,6],domePosition:[0,12,4],doorTrimWidth:.32,hazardStripeScale:[.18,2,.15],
+    domeScale:[6,4,6],domePosition:[0,14,4],doorTrimWidth:.32,hazardStripeScale:[.18,2,.15],
     hazardStripeOffsets:[-.8,0,.8],hazardStripeAngle:Math.PI/4},
   cruiser:{sides:['left','right','bottom'],offsetX:29,offsetY:-24,segmentOverlap:1.15,noseTiles:4,tailTiles:3,
     hullScale:[13,8,23],spineScale:[7,3,25],spineOffset:[0,7,0],
     wingScale:[7,2,18],wingOffset:[14,-1,0],windowScale:[.25,.28,3],
     windowXs:[-11.8,11.8],windowYs:[-2,2],windowZs:[-6,0,6],
     engineScale:[3.5,3.5,1],engineXs:[-5,5],engineZ:9,trimScale:[1,1,23],trimOffset:[0,8.5,0]},
-  palette:{wall:0x253a50,window:0x081827,rib:0x48657e,light:0x8fe9e4,
+  palette:{wall:0x253a50,rib:0x48657e,light:0x8fe9e4,
     station:0x8296a6,hazard:0xd99a51,cruiser:0x687d91,cruiserTrim:0xe8ba7b,engine:0x6bf5ee},
-  geometry:{rockDetail:0,radialSegments:12,sphereWidthSegments:12,sphereHeightSegments:8,
+  geometry:{icosahedronDetail:0,radialSegments:12,sphereWidthSegments:12,sphereHeightSegments:8,
     torusTube:.13,torusRadialSegments:8,torusSegments:40,gateRadius:15.3,gateTube:.28,
     gateSegments:80,trimRadius:15.9,trimTube:.07,trimRadialSegments:6},
-  material:{roughness:.7,metalness:.45,windowOpacity:.2,windowEmissive:.15,lightEmissive:.7,wallEmissive:.22},
+  material:{roughness:.7,metalness:.45,lightEmissive:.7,wallEmissive:.22},
   gates:{wallInset:.3,portalRange:6,frameWidth:.28},
+  openingDimensions(distance) {
+    const c=this.station,progress=math.clamp(difficulty.progress(distance)*c.openings.shrinkPerDifficulty,0,1);
+    const scale=math.mix(c.openings.startScale,1,progress);
+    return {rx:Math.min(c.openingHalfWidth*scale,c.halfWidth,tunnel.bounds.halfWidth),
+      ry:Math.min(c.openingHalfHeight*scale,c.halfHeight,tunnel.bounds.halfHeight)};
+  },
+  openingBounds(dimensions) {
+    return {x:Math.min(this.station.halfWidth,tunnel.bounds.halfWidth)-dimensions.rx,
+      y:Math.min(this.station.halfHeight,tunnel.bounds.halfHeight)-dimensions.ry};
+  },
+  openingShiftLimit(first,second,chained=false) {
+    const c=this.station.chains;
+    const travelSeconds=(second-first)/(race.cruiseSpeed(second)*c.speedAllowance);
+    const steeringSeconds=Math.max(0,travelSeconds-c.reactionSeconds);
+    // Distance reachable from rest after the player's reaction time, using actual steering response.
+    const reachable=flight.steerSpeed*(steeringSeconds-(1-Math.exp(-flight.response*steeringSeconds))/flight.response);
+    return chained?Math.min(c.maxCenterShift,reachable):reachable;
+  },
   deterministic:{hashOffset:2166136261,hashPrime:16777619,range:4294967296,avalancheShifts:[16,13]},
   sample(seed,index,salt) {
     let hash=this.deterministic.hashOffset;
@@ -874,21 +949,288 @@ const speedRings = {
   stride() {return Math.max(this.seriesDistance,(this.maxCount-1)*this.spacing+this.seriesGap);},
 };
 const scenery = {
-  spacing:115,clearance:28,corridorRadius:15,kinds:['rock','station','rock','satellite','rock'],
-  clusters:{minCount:4,maxCount:9,spreadX:17,spreadY:12,spreadD:22,minRadius:2,maxRadius:6,
-    colors:[0x78675d,0x547d88,0x81769b,0x986d57,0x64816b]},
-  sample(index,salt) {const n=Math.sin(index*127.1+salt*311.7)*43758.5453;return n-Math.floor(n);},
-  placement(index) {
-    const d=index*this.spacing+55,side=index%2?1:-1,radius=22;
-    const p={index,d,radius,kind:this.kinds[index%this.kinds.length],
-      x:side*(65+this.sample(index,1)*40),y:(this.sample(index,2)-.5)*85,
-      scale:.7+this.sample(index,3)*.55,rotation:this.sample(index,4)*math.tau};
-    if(p.kind==='rock')p.radius=(Math.hypot(this.clusters.spreadX,this.clusters.spreadY,this.clusters.spreadD)+this.clusters.maxRadius)*p.scale;
-    return p;
+  spacing:287.5,
+  clearance:28,
+  corridorRadius:15,
+  kinds:['station','satellite'],
+  layout:{startOffset:55,behindDistance:50,clearanceStep:3,objectRadius:22,
+    sideDistance:65,sideSpan:40,heightSpan:85,scale:.7,scaleSpan:.55,rotationX:.2,rotationZ:.15},
+  clusterPresentation:{
+    spawnAheadDistance:1000,
+    fadeDistance:100,
+    retireBehindCameraDistance:180,
   },
+  clusterLayout:{
+    candidateDirections:24,
+  },
+  asteroidSurface:{
+    icosphereDetail:3,
+    axisScale:{min:.8,max:1.2},
+    featureCount:{min:5,max:9},
+    featureWidth:{min:.3,max:.7},
+    featureDisplacement:{min:-.35,max:.45},
+    radialLimits:{min:.5,max:1.6},
+    grainAmount:.04,
+    noisePrecision:1000000,
+  },
+  asteroidClusters:{
+    frequency:1,
+    quantity:{min:4,max:9},
+    asteroidSize:{min:2,max:6},
+    sizeVariability:{min:.6,max:1.6},
+    asteroidSpacing:4,
+    spawnSpacing:115,
+    centerDistance:{min:120,max:180},
+    initialRotation:{min:0,max:Math.PI*2},
+    asteroidTumble:{min:.03,max:.12},
+    clusterTumble:{min:.01,max:.03},
+    asteroidVelocity:{min:0,max:.4},
+    clusterVelocity:{min:0,max:1},
+    colors:[0x78675d,0x547d88,0x81769b,0x986d57,0x64816b],
+  },
+  sample(index,salt,seed=tuning.seed) {return route.sample(seed,index,salt);},
+  sampleRange(range,index,salt,seed,integer=false) {
+    const roll=this.sample(index,salt,seed);
+    return integer?range.min+Math.floor(roll*(range.max-range.min+1)):math.mix(range.min,range.max,roll);
+  },
+  vector(index,salt,magnitude,seed) {
+    const angle=this.sample(index,`${salt}:angle`,seed)*math.tau,y=this.sample(index,`${salt}:height`,seed)*2-1;
+    const radius=Math.sqrt(1-y*y)*magnitude;
+    return [Math.cos(angle)*radius,y*magnitude,Math.sin(angle)*radius];
+  },
+  motion(index,salt,tumbleRange,velocityRange,seed) {
+    const tumble=this.sampleRange(tumbleRange,index,`${salt}:tumble`,seed);
+    const speed=this.sampleRange(velocityRange,index,`${salt}:speed`,seed);
+    return {
+      tumble,
+      speed,
+      spin:this.vector(index,`${salt}:spin`,tumble,seed),
+      velocity:this.vector(index,`${salt}:velocity`,speed,seed),
+    };
+  },
+  placement(index,seed=tuning.seed) {
+    const layout=this.layout,side=index%2?1:-1;
+    return {index,d:index*this.spacing+layout.startOffset,radius:layout.objectRadius,kind:this.kinds[index%this.kinds.length],
+      x:side*(layout.sideDistance+this.sample(index,'object-x',seed)*layout.sideSpan),
+      y:(this.sample(index,'object-y',seed)-.5)*layout.heightSpan,
+      scale:layout.scale+this.sample(index,'object-scale',seed)*layout.scaleSpan,
+      rotation:[layout.rotationX,this.sample(index,'object-rotation',seed)*math.tau,layout.rotationZ]};
+  },
+  asteroidCenterOfMass(asteroids) {
+    const center={x:0,y:0,z:0};
+    let totalMass=0;
+
+    for(const asteroid of asteroids){
+      // Estimate mass from the cube of each asteroid's outer radius.
+      const mass=asteroid.scale*asteroid.scale*asteroid.scale;
+      center.x+=asteroid.position.x*mass;
+      center.y+=asteroid.position.y*mass;
+      center.z+=asteroid.position.z*mass;
+      totalMass+=mass;
+    }
+
+    if(totalMass){
+      center.x/=totalMass;
+      center.y/=totalMass;
+      center.z/=totalMass;
+    }
+    return center;
+  },
+  asteroidPosition(index,sampleKey,scale,asteroids,spacing,seed) {
+    const center=this.asteroidCenterOfMass(asteroids);
+    if(!asteroids.length)return center;
+
+    let closestPosition;
+    let closestDistance=Infinity;
+
+    for(let candidate=0;candidate<this.clusterLayout.candidateDirections;candidate++){
+      const direction=this.vector(index,`${sampleKey}:position:${candidate}`,1,seed);
+      // Along this ray, each asteroid excludes the new radius plus the surface gap.
+      const blockedIntervals=[];
+      for(const asteroid of asteroids){
+        const offset=[
+          asteroid.position.x-center.x,
+          asteroid.position.y-center.y,
+          asteroid.position.z-center.z,
+        ];
+        const alongRay=offset.reduce((sum,value,axis)=>sum+value*direction[axis],0);
+        const acrossRaySquared=Math.max(0,offset.reduce((sum,value)=>sum+value*value,0)-alongRay*alongRay);
+        const minimumSeparation=scale+asteroid.scale+spacing;
+        if(acrossRaySquared>minimumSeparation*minimumSeparation)continue;
+
+        const halfChord=Math.sqrt(minimumSeparation*minimumSeparation-acrossRaySquared);
+        blockedIntervals.push({start:alongRay-halfChord,end:alongRay+halfChord});
+      }
+
+      // The first unblocked point is the closest valid position in this direction.
+      blockedIntervals.sort((a,b)=>a.start-b.start);
+      let distance=0;
+      for(const interval of blockedIntervals){
+        if(interval.start>distance)break;
+        distance=Math.max(distance,interval.end);
+      }
+
+      // Random directions keep the shape organic; favor the one nearest the center of mass.
+      if(distance<closestDistance){
+        closestDistance=distance;
+        closestPosition={
+          x:center.x+direction[0]*distance,
+          y:center.y+direction[1]*distance,
+          z:center.z+direction[2]*distance,
+        };
+      }
+    }
+    return closestPosition;
+  },
+  asteroidShape(index,sampleKey,seed) {
+    const settings=this.asteroidSurface;
+    const sample=(range,name,integer=false)=>this.sampleRange(range,index,`${sampleKey}:surface:${name}`,seed,integer);
+    const featureCount=sample(settings.featureCount,'feature-count',true);
+
+    return {
+      seed:`${seed}:${index}:${sampleKey}:surface`,
+      axisScale:[
+        sample(settings.axisScale,'axis-x'),
+        sample(settings.axisScale,'axis-y'),
+        sample(settings.axisScale,'axis-z'),
+      ],
+      features:Array.from({length:featureCount},(_,feature)=>({
+        direction:this.vector(index,`${sampleKey}:surface:feature:${feature}`,1,seed),
+        width:sample(settings.featureWidth,`feature:${feature}:width`),
+        displacement:sample(settings.featureDisplacement,`feature:${feature}:displacement`),
+      })),
+      radialLimits:{...settings.radialLimits},
+      grainAmount:settings.grainAmount,
+      noisePrecision:settings.noisePrecision,
+    };
+  },
+  asteroidVertex(shape,x,y,z) {
+    const length=Math.hypot(x,y,z);
+    const direction=[x/length,y/length,z/length];
+    let radius=1;
+
+    // Broad overlapping features make dents and bulges instead of uniform spheres.
+    for(const feature of shape.features){
+      const alignment=direction.reduce((sum,value,axis)=>sum+value*feature.direction[axis],0);
+      const angularDistanceSquared=2*(1-alignment);
+      radius+=feature.displacement*Math.exp(-angularDistanceSquared/(2*feature.width*feature.width));
+    }
+
+    // Coordinate-based noise keeps duplicated triangle vertices joined at their seams.
+    const vertexKey=direction.map(value=>Math.round(value*shape.noisePrecision)).join(':');
+    radius+=(route.sample(shape.seed,0,vertexKey)*2-1)*shape.grainAmount;
+    radius=math.clamp(radius,shape.radialLimits.min,shape.radialLimits.max);
+    return direction.map((value,axis)=>value*radius*shape.axisScale[axis]);
+  },
+  asteroidCluster(index,distance,seed=tuning.seed) {
+    const settings=this.asteroidClusters;
+    const sample=(range,name,integer=false)=>this.sampleRange(range,index,name,seed,integer);
+
+    if(this.sample(index,'asteroidCluster:frequency',seed)>=settings.frequency)return null;
+
+    const quantity=sample(settings.quantity,'asteroidCluster:quantity',true);
+    const asteroids=[];
+
+    for(let asteroidIndex=0;asteroidIndex<quantity;asteroidIndex++){
+      const sampleKey=`asteroid:${asteroidIndex}`;
+      const baseSize=sample(settings.asteroidSize,`${sampleKey}:size`);
+      const sizeMultiplier=sample(settings.sizeVariability,`${sampleKey}:size-variability`);
+      const scale=baseSize*sizeMultiplier;
+      const position=this.asteroidPosition(index,sampleKey,scale,asteroids,settings.asteroidSpacing,seed);
+      const shape=this.asteroidShape(index,sampleKey,seed);
+      const rotation=[
+        sample(settings.initialRotation,`${sampleKey}:rotation-x`),
+        sample(settings.initialRotation,`${sampleKey}:rotation-y`),
+        sample(settings.initialRotation,`${sampleKey}:rotation-z`),
+      ];
+      const motion=this.motion(index,sampleKey,settings.asteroidTumble,settings.asteroidVelocity,seed);
+
+      asteroids.push({
+        kind:'asteroid',
+        baseSize,
+        sizeMultiplier,
+        scale,
+        shape,
+        position,
+        rotation,
+        ...motion,
+      });
+    }
+
+    // Make the configured cluster center its actual center of mass.
+    const center=this.asteroidCenterOfMass(asteroids);
+    for(const asteroid of asteroids){
+      asteroid.position.x-=center.x;
+      asteroid.position.y-=center.y;
+      asteroid.position.z-=center.z;
+    }
+
+    const centerDistance=sample(settings.centerDistance,'asteroidCluster:center-distance');
+    const angle=this.sample(index,'asteroidCluster:angle',seed)*math.tau;
+    const position={
+      x:Math.cos(angle)*centerDistance,
+      y:Math.sin(angle)*centerDistance,
+      distance,
+    };
+    const rotation=[
+      sample(settings.initialRotation,'asteroidCluster:rotation-x'),
+      sample(settings.initialRotation,'asteroidCluster:rotation-y'),
+      sample(settings.initialRotation,'asteroidCluster:rotation-z'),
+    ];
+    const motion=this.motion(index,'asteroidCluster',settings.clusterTumble,settings.clusterVelocity,seed);
+    const colorIndex=Math.floor(this.sample(index,'asteroidCluster:color',seed)*settings.colors.length);
+
+    return {
+      kind:'asteroidCluster',
+      index,
+      quantity,
+      asteroidSpacing:settings.asteroidSpacing,
+      position,
+      rotation,
+      asteroids,
+      centerDistance,
+      angle,
+      colorIndex,
+      ...motion,
+    };
+  },
+  asteroidClusterPose(cluster,age) {
+    const asteroids=cluster.asteroids.map(asteroid=>({
+      position:{
+        x:asteroid.position.x+asteroid.velocity[0]*age,
+        y:asteroid.position.y+asteroid.velocity[1]*age,
+        z:asteroid.position.z+asteroid.velocity[2]*age,
+      },
+      rotation:asteroid.rotation.map((value,axis)=>value+asteroid.spin[axis]*age),
+      scale:asteroid.scale,
+    }));
+    // This derived bound is only for renderer clearance; it never scales the cluster.
+    const boundsRadius=Math.max(...asteroids.map(asteroid=>Math.hypot(asteroid.position.x,asteroid.position.y,asteroid.position.z)+asteroid.scale));
+    return {
+      position:{
+        x:cluster.position.x+cluster.velocity[0]*age,
+        y:cluster.position.y+cluster.velocity[1]*age,
+        distance:cluster.position.distance-cluster.velocity[2]*age,
+      },
+      rotation:cluster.rotation.map((value,axis)=>value+cluster.spin[axis]*age),
+      asteroids,
+      boundsRadius,
+    };
+  },
+  clusterOpacity(distanceAhead) {return math.clamp((this.clusterPresentation.spawnAheadDistance-distanceAhead)/this.clusterPresentation.fadeDistance,0,1);},
+  clusterRetired(pose,s) {
+    const position=tunnel.world(pose.position.x,pose.position.y,pose.position.distance,s.distance);
+    const camera=gfx.flightCamera(s);
+    const backward=camera.position.map((value,axis)=>value-camera.look[axis]);
+    const length=Math.hypot(...backward);
+    const behind=position.reduce((sum,value,axis)=>sum+(value-camera.position[axis])*backward[axis]/length,0);
+    return behind-pose.boundsRadius>this.clusterPresentation.retireBehindCameraDistance;
+  },
+  clusterClearsPath(pose) {return this.clearsPath({x:pose.position.x,y:pose.position.y,d:pose.position.distance,radius:pose.boundsRadius});},
   clearsPath(p) {
+    if(!p)return false;
     const center=tunnel.center(p.d),minimum=this.corridorRadius+this.clearance+p.radius;
-    for(let offset=-p.radius;offset<=p.radius;offset+=3){
+    for(let offset=-p.radius;offset<=p.radius;offset+=this.layout.clearanceStep){
       const path=tunnel.center(p.d+offset);
       if(Math.hypot(center.x+p.x-path.x,center.y+p.y-path.y)<minimum)return false;
     }
@@ -913,7 +1255,7 @@ const voices = {
 // Mutable numeric overrides; authored rules remain centralized above.
 const tuning = {
   seed:'GOODBOY',defaultSeed:'GOODBOY',seedLimit:80,
-  persistence:{key:'starhound.developer-settings.v1',version:2},saved:null,
+  persistence:{key:'starhound.developer-settings.v1',version:6},saved:null,
   checkpointGroups:['difficulty','race','encounters','weapon','pickups','gfx'],
   fields:[
     {path:'race.waveLength',label:'Wave distance',min:500,max:5000,step:10},
@@ -951,21 +1293,47 @@ const tuning = {
     {path:'pickups.minimumSpacing',label:'Minimum space between pickups / distance',min:5,max:5000,step:5},
     {path:'pickups.frequency',label:'Pickup frequency (0–1)',min:0,max:1,step:.01},
     {path:'gfx.fogDensity',label:'Space fog',min:0,max:.01,step:.0001},
-    {path:'route.openShare',label:'Open space share (0–1)',min:.1,max:.95,step:.05},
+    {path:'scenery.asteroidClusters.frequency',label:'Cluster frequency (0–1)',min:0,max:1,step:.01,type:'number',section:'Background asteroid clusters'},
+    {path:'scenery.asteroidClusters.quantity',label:'Asteroids per cluster',min:1,max:50,step:1,type:'range'},
+    {path:'scenery.asteroidClusters.asteroidSize',label:'Asteroid size / base radius',min:.25,max:20,step:.25,type:'range'},
+    {path:'scenery.asteroidClusters.sizeVariability',label:'Asteroid size variability / multiplier',min:.1,max:3,step:.05,type:'range'},
+    {path:'scenery.asteroidClusters.asteroidSpacing',label:'Space between asteroid surfaces / units',min:0,max:100,step:.5,type:'number'},
+    {path:'scenery.asteroidClusters.spawnSpacing',label:'Cluster spawn spacing / distance traveled',min:25,max:2000,step:5,type:'number'},
+    {path:'scenery.asteroidClusters.centerDistance',label:'Distance of cluster center from track',min:0,max:1000,step:.5,type:'range'},
+    {path:'scenery.asteroidClusters.asteroidTumble',label:'Asteroid tumble / radians per second',min:0,max:2,step:.01,type:'range'},
+    {path:'scenery.asteroidClusters.clusterTumble',label:'Cluster tumble / radians per second',min:0,max:1,step:.01,type:'range'},
+    {path:'scenery.asteroidClusters.asteroidVelocity',label:'Asteroid velocity / units per second',min:0,max:20,step:.1,type:'range'},
+    {path:'scenery.asteroidClusters.clusterVelocity',label:'Cluster velocity / units per second',min:0,max:40,step:.1,type:'range'},
+    {path:'route.openShare',label:'Open space share (0–1)',min:.1,max:.95,step:.05,section:'Route and speed rings'},
     {path:'route.tunnelWeight',label:'Tunnel frequency weight',min:0,max:10,step:.1},
     {path:'route.stationWeight',label:'Station frequency weight',min:0,max:10,step:.1},
     {path:'route.cruiserWeight',label:'Cruiser frequency weight',min:0,max:10,step:.1},
     {path:'route.tunnelLength',label:'Tunnel length / distance',min:240,max:3000,step:20},
     {path:'route.stationLength',label:'Station length / distance',min:360,max:1600,step:20},
     {path:'route.cruiserLength',label:'Cruiser length / distance',min:400,max:4000,step:20},
-    {path:'speedRings.seriesDistance',label:'Ring series interval / distance',min:800,max:3000,step:20},
-    {path:'speedRings.spacing',label:'Space between rings / distance',min:60,max:160,step:5},
+    {path:'route.station.openingHalfWidth',label:'Minimum opening half-width / units',min:1,max:8,step:.1,section:'Station walls and openings'},
+    {path:'route.station.openingHalfHeight',label:'Minimum opening half-height / units',min:1,max:6,step:.1},
+    {path:'route.station.openings.startScale',label:'Starting opening size / multiplier',min:1,max:2.5,step:.05},
+    {path:'route.station.openings.shrinkPerDifficulty',label:'Opening shrink / difficulty',min:0,max:5,step:.05},
+    {path:'route.station.chains.frequency',label:'Wall chain frequency (0–1)',min:0,max:1,step:.05},
+    {path:'route.station.chains.maxWalls',label:'Maximum walls per chain',min:1,max:3,step:1},
+    {path:'route.station.chains.minimumSpacing',label:'Minimum wall chain spacing / distance',min:30,max:500,step:5},
+    {path:'route.station.chains.maxCenterShift',label:'Maximum chained opening shift / units',min:0,max:6,step:.1},
+    {path:'speedRings.seriesDistance',label:'Ring series interval / distance',min:800,max:3000,step:20,section:'Speed rings'},
+    {path:'speedRings.spacing',label:'Space between rings / distance',min:10,max:160,step:5},
     {path:'speedRings.bonusPerRing',label:'Speed bonus per ring (0–1)',min:.01,max:.3,step:.01},
     {path:'speedRings.bonusCap',label:'Maximum ring speed bonus (0–1)',min:.1,max:1.5,step:.05},
     {path:'speedRings.decayPerSecond',label:'Ring bonus decay / second',min:.005,max:.15,step:.005},
   ],
-  objects:{difficulty,race,encounters,weapon,pickups,gfx,renderMath,music,route,speedRings},
-  values() {return Object.fromEntries(this.fields.map(({path})=>{const [group,key]=path.split('.');return [path,this.objects[group][key]];}));},
+  objects:{difficulty,race,encounters,weapon,pickups,gfx,renderMath,music,route,speedRings,scenery},
+  binding(path) {
+    const parts=path.split('.'),key=parts.pop();
+    return {object:parts.reduce((object,part)=>object[part],this.objects),key};
+  },
+  values() {return Object.fromEntries(this.fields.map(({path,type})=>{
+    const {object,key}=this.binding(path),value=object[key];
+    return [path,type==='range'?{...value}:value];
+  }));},
   constraints:[
     {lower:'race.startSpeed',upper:'race.maxSpeed',message:'Maximum cruise speed must be at least the starting speed.'},
     {lower:'encounters.minInterval',upper:'encounters.startInterval',message:'Minimum obstacle spacing cannot exceed starting obstacle spacing.'},
@@ -975,8 +1343,11 @@ const tuning = {
   ],
   validationError(values) {
     if(!values||typeof values!=='object')return 'Enter valid settings.';
-    for(const {path,label,min,max,step} of this.fields)
-      if(!Number.isFinite(values[path])||values[path]<min||values[path]>max||step===1&&!Number.isInteger(values[path]))return `Enter a valid value for ${label}.`;
+    for(const {path,label,min,max,step,type} of this.fields){
+      const value=values[path],bounds=type==='range'?[value?.min,value?.max]:[value];
+      if(bounds.some(bound=>!Number.isFinite(bound)||bound<min||bound>max||step===1&&!Number.isInteger(bound))||type==='range'&&value.min>value.max)
+        return `Enter a valid value for ${label}.`;
+    }
     for(const {lower,upper,message} of this.constraints)if(values[lower]>values[upper])return message;
     if(values['route.tunnelWeight']+values['route.stationWeight']+values['route.cruiserWeight']<=0)return 'Give at least one motif a frequency weight above zero.';
     return '';
@@ -999,17 +1370,44 @@ const tuning = {
     return this.valid(migrated)?migrated:null;
   },
   validCheckpoint(values) {
-    return values&&this.fields.filter(({path})=>this.checkpointGroups.includes(path.split('.')[0])).every(({path})=>Number.isFinite(values[path]))&&this.valid({...this.defaults,...values});
+    return values&&this.fields.filter(({path})=>this.checkpointGroups.includes(path.split('.')[0])).every(({path})=>Number.isFinite(values[path]))&&this.valid({...this.defaults,...this.projectValues(values)});
   },
   apply(values) {
-    for(const {path,min,max} of this.fields) {if(values[path]===undefined)continue;const [group,key]=path.split('.'),v=Number(values[path]);if(Number.isFinite(v))this.objects[group][key]=math.clamp(v,min,max);}
+    for(const {path,min,max,type} of this.fields){
+      if(values[path]===undefined)continue;
+      const {object,key}=this.binding(path),value=values[path];
+      if(type==='range'){
+        if(Number.isFinite(value?.min)&&Number.isFinite(value?.max)&&value.min<=value.max)
+          object[key]={min:math.clamp(value.min,min,max),max:math.clamp(value.max,min,max)};
+      }else if(Number.isFinite(Number(value)))object[key]=math.clamp(Number(value),min,max);
+    }
+  },
+  upgradeValues(version,values) {
+    if(version===legacyTuning.settingsVersion)return this.migrateValues(values);
+    const addedGroups=this.schemaUpgrades[version];
+    if(!addedGroups)return version===this.persistence.version&&this.valid(values)?values:null;
+    if(!values||!this.fields.filter(({path})=>!addedGroups.includes(path.split('.')[0])).every(({path})=>Number.isFinite(values[path])))return null;
+    const upgraded={...this.defaults,...this.projectValues(values)};return this.valid(upgraded)?upgraded:null;
+  },
+  schemaUpgrades:{2:['scenery','route'],3:['scenery','route'],4:['scenery','route'],5:['scenery','route']},
+  legacyFieldNames:{
+    'scenery.asteroidClusters.frequency':'scenery.clusters.frequency',
+    'scenery.asteroidClusters.quantity':'scenery.clusters.count',
+    'scenery.asteroidClusters.asteroidSize':'scenery.clusters.scale',
+    'scenery.asteroidClusters.asteroidTumble':'scenery.clusters.tumble',
+    'scenery.asteroidClusters.clusterTumble':'scenery.clusters.groupTumble',
+    'scenery.asteroidClusters.asteroidVelocity':'scenery.clusters.velocity',
+    'scenery.asteroidClusters.clusterVelocity':'scenery.clusters.groupVelocity',
+  },
+  projectValues(values) {
+    return Object.fromEntries(this.fields.map(({path})=>[path,values[path]??values[this.legacyFieldNames[path]]]).filter(([,value])=>value!==undefined));
   },
   load() {
     try {
       const stored=JSON.parse(global.localStorage?.getItem(this.persistence.key)||'null');
       if(stored&&typeof stored.seed==='string'){
-        const values=stored.version===legacyTuning.settingsVersion?this.migrateValues(stored.values):stored.values;
-        if((stored.version===this.persistence.version||stored.version===legacyTuning.settingsVersion)&&this.valid(values))
+        const values=this.upgradeValues(stored.version,stored.values);
+        if(values)
           this.saved={version:this.persistence.version,values,seed:stored.seed};
       }
     }catch{}
@@ -1024,7 +1422,7 @@ const tuning = {
   exportSource() {return '// STARHOUND complete classic settings. Paste over js/settings.js.\n('+configure.toString()+')(window, '+JSON.stringify({...this.values(),seed:this.seed},null,2)+');\n';},
 };
 tuning.apply(overrides);if(typeof overrides.seed==='string')tuning.seed=overrides.seed.slice(0,80);
-tuning.defaults=Object.freeze(tuning.values());tuning.defaultSeed=tuning.seed;tuning.load();
+tuning.defaults=Object.freeze(Object.fromEntries(Object.entries(tuning.values()).map(([path,value])=>[path,typeof value==='object'?Object.freeze(value):value])));tuning.defaultSeed=tuning.seed;tuning.load();
 namespace.settings = Object.freeze({math,random,tunnel,difficulty,race,hull,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,music,sfx,voices,renderMath,speedEffects,scenery,route,speedRings,propulsion,crash,tuning});
 })(window, {
   "race.waveLength": 2200,
@@ -1037,27 +1435,77 @@ namespace.settings = Object.freeze({math,random,tunnel,difficulty,race,hull,chec
   "race.recoveryLength": 210,
   "race.chargeDrain": 1.2,
   "race.boostDrain": 15,
-  "encounters.startInterval": 150,
-  "encounters.minInterval": 38,
+  "encounters.startInterval": 80,
+  "encounters.minInterval": 10,
   "encounters.spacingDecay": 1,
+  "encounters.startCount": 1,
+  "encounters.maxCount": 4,
+  "encounters.countGrowth": 2.5,
+  "encounters.startEnemyHp": 1,
+  "encounters.enemyHpGrowth": 2.5,
+  "encounters.startRockHp": 1,
+  "encounters.rockHpGrowth": 1.875,
+  "encounters.startDrift": 0.2,
+  "encounters.maxDrift": 3,
+  "encounters.driftGrowth": 1.5,
+  "encounters.startFireInterval": 4.5,
+  "encounters.minFireInterval": 0.55,
+  "encounters.fireDecay": 0.7,
+  "encounters.shootingThreshold": 0.25,
+  "encounters.escortThreshold": 0.45,
   "weapon.baseInterval": 0.05,
   "weapon.heatPerVolley": 5,
   "weapon.coolingPerSecond": 22,
   "weapon.extraCooldown": 1,
-  "pickups.minimumSpacing": 500,
+  "pickups.minimumSpacing": 5000,
   "pickups.frequency": 1,
   "gfx.fogDensity": 0.0022,
   "route.openShare": 0.6,
   "route.tunnelWeight": 1,
-  "route.stationWeight": 1,
+  "route.stationWeight": 10,
   "route.cruiserWeight": 1,
   "route.tunnelLength": 720,
   "route.stationLength": 420,
   "route.cruiserLength": 1100,
-  "speedRings.seriesDistance": 1200,
+  "speedRings.seriesDistance": 1300,
   "speedRings.spacing": 60,
   "speedRings.bonusPerRing": 0.1,
   "speedRings.bonusCap": 0.6,
   "speedRings.decayPerSecond": 0.025,
-  "seed": "GOODBOY"
+  "seed": "GOODBOY",
+  "scenery.asteroidClusters.frequency": 1,
+  "scenery.asteroidClusters.quantity": {
+    "min": 4,
+    "max": 9
+  },
+  "scenery.asteroidClusters.asteroidSize": {
+    "min": 2,
+    "max": 6
+  },
+  "scenery.asteroidClusters.sizeVariability": {
+    "min": 0.6,
+    "max": 1.6
+  },
+  "scenery.asteroidClusters.asteroidTumble": {
+    "min": 0.03,
+    "max": 0.12
+  },
+  "scenery.asteroidClusters.clusterTumble": {
+    "min": 0.01,
+    "max": 0.03
+  },
+  "scenery.asteroidClusters.asteroidVelocity": {
+    "min": 0,
+    "max": 0.4
+  },
+  "scenery.asteroidClusters.clusterVelocity": {
+    "min": 0,
+    "max": 1
+  },
+  "scenery.asteroidClusters.asteroidSpacing": 4,
+  "scenery.asteroidClusters.spawnSpacing": 115,
+  "scenery.asteroidClusters.centerDistance": {
+    "min": 120,
+    "max": 180
+  }
 });

@@ -8,22 +8,20 @@ const {race,tunnel,scenery,route,speedRings}=namespace.settings;
  */
 class FlightEnvironment {
   constructor(scene,plan){
-    this.scene=scene;this.plan=plan;this.objects=new Map();this.gates=new Map();this.motifs=new Map();this.rings=new Map();
+    this.scene=scene;this.plan=plan;this.objects=new Map();this.asteroidClusters=new Map();this.clusterSpawnIndex=null;this.gates=new Map();this.motifs=new Map();this.rings=new Map();
     const g=route.geometry;
-    this.geometries={box:new THREE.BoxGeometry(),rock:new THREE.IcosahedronGeometry(1,g.rockDetail),cruiser:new THREE.IcosahedronGeometry(1,g.rockDetail),
+    this.geometries={box:new THREE.BoxGeometry(),asteroid:new THREE.IcosahedronGeometry(1,scenery.asteroidSurface.icosphereDetail),cruiser:new THREE.IcosahedronGeometry(1,g.icosahedronDetail),
       cylinder:new THREE.CylinderGeometry(1,1,1,g.radialSegments),sphere:new THREE.SphereGeometry(1,g.sphereWidthSegments,g.sphereHeightSegments),
       torus:new THREE.TorusGeometry(1,g.torusTube,g.torusRadialSegments,g.torusSegments),gate:new THREE.TorusGeometry(g.gateRadius,g.gateTube,g.torusRadialSegments,g.gateSegments),trim:new THREE.TorusGeometry(g.trimRadius,g.trimTube,g.trimRadialSegments,g.gateSegments),
-      rib:new THREE.TorusGeometry(route.tunnel.radius,route.tunnel.ribWidth,g.torusRadialSegments,route.tunnel.sides),
       ring:new THREE.TorusGeometry(speedRings.radius,speedRings.tubeRadius,speedRings.tubeSegments,speedRings.sides)};
     this.materials={hull:new THREE.MeshStandardMaterial({color:0x5e849a,metalness:.65,roughness:.45}),
       panel:new THREE.MeshStandardMaterial({color:0x235a9e,emissive:0x123652,metalness:.6}),
       gate:new THREE.MeshBasicMaterial({color:0x80f1cf})};
     for(const [name,color] of Object.entries(route.palette))this.materials[name]=new THREE.MeshStandardMaterial({
-      color,side:THREE.DoubleSide,roughness:route.material.roughness,metalness:route.material.metalness,
-      ...(name==='window'?{transparent:true,opacity:route.material.windowOpacity,depthWrite:false,emissive:color,emissiveIntensity:route.material.windowEmissive}:{})});
+      color,side:THREE.DoubleSide,roughness:route.material.roughness,metalness:route.material.metalness});
     this.materials.wall.emissive.set(route.palette.wall);this.materials.wall.emissiveIntensity=route.material.wallEmissive;
     for(const name of ['light','engine']){this.materials[name].emissive.set(route.palette[name]);this.materials[name].emissiveIntensity=route.material.lightEmissive;}
-    this.clusterMaterials=scenery.clusters.colors.map(color=>new THREE.MeshStandardMaterial({color,roughness:1,flatShading:true}));
+    this.clusterMaterials=scenery.asteroidClusters.colors.map(color=>new THREE.MeshStandardMaterial({color,roughness:1,flatShading:true}));
     this.ringMaterials=Object.fromEntries(Object.entries(speedRings.colors).map(([name,color])=>[name,new THREE.MeshBasicMaterial({color})]));
   }
   part(group,shape,material,position,scale,rotation=[0,0,0]){
@@ -32,17 +30,6 @@ class FlightEnvironment {
   }
   makeObject(p){
     const group=new THREE.Group();
-    if(p.kind==='rock'){
-      const c=scenery.clusters,count=c.minCount+Math.floor(this.plan.sample(p.index,'cluster-count')*(c.maxCount-c.minCount+1));
-      const material=this.clusterMaterials[Math.floor(this.plan.sample(p.index,'cluster-color')*this.clusterMaterials.length)];
-      for(let i=0;i<count;i++){
-        const radius=c.minRadius+this.plan.sample(p.index,`cluster-radius:${i}`)*(c.maxRadius-c.minRadius);
-        const mesh=new THREE.Mesh(this.geometries.rock,material);
-        mesh.position.set((this.plan.sample(p.index,`cluster-x:${i}`)*2-1)*c.spreadX,
-          (this.plan.sample(p.index,`cluster-y:${i}`)*2-1)*c.spreadY,(this.plan.sample(p.index,`cluster-z:${i}`)*2-1)*c.spreadD);
-        mesh.scale.setScalar(radius);mesh.rotation.set(this.plan.sample(p.index,`cluster-spin:${i}`)*Math.PI,0,0);group.add(mesh);
-      }
-    }
     if(p.kind==='station'){
       this.part(group,'cylinder','hull',[0,0,0],[4,13,4],[Math.PI/2,0,0]);
       this.part(group,'torus','hull',[0,0,0],[12,12,12]);
@@ -62,8 +49,75 @@ class FlightEnvironment {
       this.part(group,'sphere','hull',[0,5,0],[3,.6,3]);
       this.part(group,'box','light',[0,7,0],[.15,3,.15]);
     }
-    group.scale.setScalar(p.scale);group.rotation.set(.2,p.rotation,.15);
+    group.scale.setScalar(p.scale);group.rotation.fromArray(p.rotation);
     group.userData.placement=p;this.scene.add(group);return group;
+  }
+  makeAsteroidGeometry(asteroid){
+    const geometry=this.geometries.asteroid.clone();
+    const positions=geometry.getAttribute('position');
+    let outerRadius=0;
+
+    for(let vertex=0;vertex<positions.count;vertex++){
+      const point=scenery.asteroidVertex(asteroid.shape,positions.getX(vertex),positions.getY(vertex),positions.getZ(vertex));
+      positions.setXYZ(vertex,...point);
+      outerRadius=Math.max(outerRadius,Math.hypot(...point));
+    }
+
+    // Scale remains the outer radius, so dents and bulges respect the placement gap.
+    geometry.scale(1/outerRadius,1/outerRadius,1/outerRadius);
+    positions.needsUpdate=true;
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+  }
+  makeAsteroidCluster(cluster,s){
+    const group=new THREE.Group();
+    const material=this.clusterMaterials[cluster.colorIndex].clone();
+    material.transparent=true;material.opacity=0;
+    group.userData.resources=[material];group.userData.material=material;
+    for(const asteroid of cluster.asteroids){
+      const geometry=this.makeAsteroidGeometry(asteroid);
+      group.userData.resources.push(geometry);
+      const mesh=new THREE.Mesh(geometry,material);
+      mesh.position.set(asteroid.position.x,asteroid.position.y,asteroid.position.z);
+      mesh.scale.setScalar(asteroid.scale);
+      mesh.rotation.fromArray(asteroid.rotation);
+      group.add(mesh);
+    }
+    group.rotation.fromArray(cluster.rotation);
+    group.userData.asteroidCluster=cluster;
+    group.userData.startedAt=s.elapsed;
+    group.userData.spawnPlayerDistance=s.distance;
+    this.scene.add(group);
+    return group;
+  }
+  updateAsteroidClusters(s){
+    const index=Math.floor(s.distance/scenery.asteroidClusters.spawnSpacing);
+    if(this.clusterSpawnIndex===null||index>this.clusterSpawnIndex){
+      // Process each reached slot once. A late start never backfills nearby clusters.
+      this.clusterSpawnIndex=index;
+      const spawnDistance=s.distance+scenery.clusterPresentation.spawnAheadDistance;
+      const cluster=scenery.asteroidCluster(index,spawnDistance,s.seed);
+      if(cluster&&this.plan.at(spawnDistance).kind==='open'&&scenery.clusterClearsPath(scenery.asteroidClusterPose(cluster,0)))
+        this.asteroidClusters.set(index,this.makeAsteroidCluster(cluster,s));
+    }
+    for(const [id,group] of this.asteroidClusters){
+      const cluster=group.userData.asteroidCluster;
+      const age=Math.max(0,s.elapsed-group.userData.startedAt);
+      const pose=scenery.asteroidClusterPose(cluster,age);
+      if(scenery.clusterRetired(pose,s)){
+        this.remove(group);this.asteroidClusters.delete(id);continue;
+      }
+      const {x,y,distance}=pose.position;
+      group.position.fromArray(tunnel.world(x,y,distance,s.distance));
+      group.rotation.fromArray(pose.rotation);
+      group.userData.material.opacity=scenery.clusterOpacity(pose.position.distance-s.distance);
+      pose.asteroids.forEach((asteroid,i)=>{
+        group.children[i].position.set(asteroid.position.x,asteroid.position.y,asteroid.position.z);
+        group.children[i].rotation.fromArray(asteroid.rotation);
+      });
+    }
   }
   makeGate(wave){
     const group=new THREE.Group(),profile=this.plan.gateProfile(race.checkpointDistance(wave));
@@ -85,23 +139,22 @@ class FlightEnvironment {
   ownGeometry(group,geometry){
     (group.userData.resources||= []).push(geometry);return geometry;
   }
-  curvedSkin(group,profile,first,last,origin,windowSides=[]){
-    const vertices={wall:[],window:[]};
+  curvedSkin(group,profile,first,last,origin,cutoutSides=[],material='wall'){
+    const vertices=[];
     const local=(point,d)=>{
       const center=tunnel.center(d),base=tunnel.center(origin);
       return [point[0]+center.x-base.x,point[1]+center.y-base.y,origin-d];
     };
     for(let side=0;side<profile.length;side++){
+      if(cutoutSides.includes(side))continue;
       const next=(side+1)%profile.length,a=local(profile[side],first),b=local(profile[next],first),
         c=local(profile[side],last),d=local(profile[next],last);
-      vertices[windowSides.includes(side)?'window':'wall'].push(...a,...c,...b,...b,...c,...d);
+      vertices.push(...a,...c,...b,...b,...c,...d);
     }
-    for(const [material,points] of Object.entries(vertices)){
-      if(!points.length)continue;
-      const geometry=this.ownGeometry(group,new THREE.BufferGeometry());
-      geometry.setAttribute('position',new THREE.Float32BufferAttribute(points,3));geometry.computeVertexNormals();
-      const mesh=new THREE.Mesh(geometry,this.materials[material]);group.add(mesh);
-    }
+    if(!vertices.length)return;
+    const geometry=this.ownGeometry(group,new THREE.BufferGeometry());
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.computeVertexNormals();
+    const mesh=new THREE.Mesh(geometry,this.materials[material]);group.add(mesh);
   }
   makeTile(segment,index,first,last){
     const group=new THREE.Group(),d=(first+last)/2;
@@ -112,14 +165,9 @@ class FlightEnvironment {
       const windows=index%c.windowGroupTiles<c.windowTiles?c.windowSides:[];
       this.curvedSkin(group,profile,first,last,d,windows);
       if(index%c.ribEveryTiles===0){
-        const center=tunnel.center(first),base=tunnel.center(d);
-        this.part(group,'rib','rib',[center.x-base.x,center.y-base.y,d-first],[1,1,1]);
-      }
-      // Window banks have luminous jambs; ceiling/floor banks use the same grouped pattern.
-      for(const side of windows){
-        const angle=side*Math.PI*2/c.sides;
-        this.part(group,'box','light',[Math.cos(angle)*(c.radius-c.windowInset),Math.sin(angle)*(c.radius-c.windowInset),0],
-          [c.windowInset,c.windowInset,length]);
+        const inset=(c.radius-c.ribWidth)/c.radius;
+        const ribProfile=profile.map(point=>point.map(value=>value*inset));
+        this.curvedSkin(group,ribProfile,first,Math.min(last,first+c.ribWidth*2),d,windows,'rib');
       }
     }
     if(segment.kind==='station'){
@@ -149,22 +197,34 @@ class FlightEnvironment {
     }
     this.scene.add(group);return group;
   }
-  makePortal(segment,portal){
+  makePortal(portal){
     const group=new THREE.Group(),c=route.station;
     group.userData.d=portal.d;
-    const left=portal.x-c.openingHalfWidth,right=portal.x+c.openingHalfWidth,
-      floor=portal.y-c.openingHalfHeight,ceiling=portal.y+c.openingHalfHeight;
+    const left=portal.x-portal.rx,right=portal.x+portal.rx,
+      floor=portal.y-portal.ry,ceiling=portal.y+portal.ry;
+    const frameFront=c.portalDepth+c.frameWidth/2;
+    const hazardFront=c.portalDepth+c.frameWidth+c.doorTrimWidth/2;
     const slab=(x1,x2,y1,y2)=>this.part(group,'box','station',[(x1+x2)/2,(y1+y2)/2,0],[x2-x1,y2-y1,c.portalDepth*2]);
     slab(-c.halfWidth,left,-c.halfHeight,c.halfHeight);slab(right,c.halfWidth,-c.halfHeight,c.halfHeight);
     slab(left,right,-c.halfHeight,floor);slab(left,right,ceiling,c.halfHeight);
-    for(const x of [left,right])this.part(group,'box','light',[x,portal.y,-c.portalDepth],[c.frameWidth,c.openingHalfHeight*2,c.frameWidth]);
-    for(const y of [floor,ceiling])this.part(group,'box','light',[portal.x,y,-c.portalDepth],[c.openingHalfWidth*2,c.frameWidth,c.frameWidth]);
+    for(const x of [left-c.frameWidth/2,right+c.frameWidth/2])
+      this.part(group,'box','light',[x,portal.y,frameFront],[c.frameWidth,portal.ry*2+c.frameWidth*2,c.frameWidth]);
+    for(const y of [floor-c.frameWidth/2,ceiling+c.frameWidth/2])
+      this.part(group,'box','light',[portal.x,y,frameFront],[portal.rx*2,c.frameWidth,c.frameWidth]);
+    for(const y of [floor-c.doorTrimWidth/2,ceiling+c.doorTrimWidth/2])
+      this.part(group,'box','hazard',[portal.x,y,hazardFront],[portal.rx*2,c.doorTrimWidth,c.doorTrimWidth]);
+    this.scene.add(group);return group;
+  }
+  makeStationFacade(portal){
+    const group=new THREE.Group(),c=route.station;
+    group.userData.d=portal.d;
+    const armCenter=(c.halfWidth+c.moduleOffset)/2;
+    const armScale=[c.moduleOffset-c.halfWidth,...c.armCrossSection];
     for(const sign of [-1,1]){
-      this.part(group,'box','rib',[sign*c.moduleOffset/2,c.moduleY,c.portalDepth],c.armScale);
+      this.part(group,'box','rib',[sign*armCenter,c.moduleY,c.portalDepth],armScale);
       this.part(group,'cruiser','station',[sign*c.moduleOffset,c.moduleY,c.portalDepth],c.moduleScale);
       this.part(group,'box','panel',[sign*c.exteriorPanelOffset[0],c.exteriorPanelOffset[1],c.exteriorPanelOffset[2]],c.exteriorPanelScale);
     }
-    for(const y of [floor,ceiling])this.part(group,'box','hazard',[portal.x,y,-c.portalDepth-c.doorTrimWidth],[c.openingHalfWidth*2,c.doorTrimWidth,c.doorTrimWidth]);
     this.part(group,'cruiser','station',c.domePosition,c.domeScale);
     this.scene.add(group);return group;
   }
@@ -185,7 +245,10 @@ class FlightEnvironment {
         const a=segment.start+i*route.tileDistance,b=Math.min(segment.end,a+route.tileDistance);
         keep(`${segment.id}:tile:${i}`,()=>this.makeTile(segment,i,a,b));
       }
-      for(const portal of segment.portals||[])if(portal.d>=first&&portal.d<=last)keep(portal.id,()=>this.makePortal(segment,portal));
+      for(const portal of segment.portals||[])if(portal.d>=first&&portal.d<=last){
+        keep(portal.id,()=>this.makePortal(portal));
+        if(portal.exterior)keep(`${portal.id}:facade`,()=>this.makeStationFacade(portal));
+      }
       for(const obstacle of segment.obstacles||[])if(obstacle.d>=first&&obstacle.d<=last)keep(obstacle.id,()=>this.makeBulkhead(obstacle));
     }
     for(const [id,group] of this.motifs){
@@ -205,21 +268,25 @@ class FlightEnvironment {
   }
   remove(group){
     this.scene.remove(group);
-    for(const geometry of group.userData.resources||[])geometry.dispose();
+    for(const resource of group.userData.resources||[])resource.dispose();
   }
   clear(){
-    for(const map of [this.objects,this.gates,this.motifs,this.rings]){for(const group of map.values())this.remove(group);map.clear();}
+    for(const map of [this.objects,this.asteroidClusters,this.gates,this.motifs,this.rings]){for(const group of map.values())this.remove(group);map.clear();}
+    this.clusterSpawnIndex=null;
   }
   update(s){
     this.updateMotifs(s);this.updateRings(s);
-    const first=Math.max(0,Math.floor((s.distance-50)/scenery.spacing));
+    this.updateAsteroidClusters(s);
+    const first=Math.max(0,Math.floor((s.distance-scenery.layout.behindDistance)/scenery.spacing));
     const last=Math.ceil((s.distance+tunnel.depth)/scenery.spacing);
-    for(const [index,group] of this.objects)if(index<first||index>last){this.scene.remove(group);this.objects.delete(index);}
+    for(const [index,group] of this.objects)if(index<first||index>last){this.remove(group);this.objects.delete(index);}
     for(let index=first;index<=last;index++){
       if(!this.objects.has(index)){
-        const p=scenery.placement(index);if(scenery.clearsPath(p))this.objects.set(index,this.makeObject(p));
+        const placement=scenery.placement(index,s.seed);
+        if(scenery.clearsPath(placement))this.objects.set(index,this.makeObject(placement));
       }
-      const group=this.objects.get(index);if(group){const p=group.userData.placement;group.position.fromArray(tunnel.world(p.x,p.y,p.d,s.distance));}
+      const group=this.objects.get(index);
+      if(group){const p=group.userData.placement;group.position.fromArray(tunnel.world(p.x,p.y,p.d,s.distance));}
     }
     const gateWaves=new Set();
     for(let wave=Math.max(2,s.wave);race.checkpointDistance(wave)<=s.distance+tunnel.depth;wave++){

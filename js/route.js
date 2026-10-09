@@ -1,6 +1,6 @@
 (function(namespace){
 'use strict';
-const {route,speedRings,math,flight,hull,propulsion,tuning}=namespace.settings;
+const {route,speedRings,math,flight,hull,propulsion,tuning,race}=namespace.settings;
 
 /** One distance plan owns motif boundaries, collision surfaces and ring placement.
  * Its hash sampling never consumes the encounter or pickup random stream.
@@ -25,11 +25,10 @@ class RoutePlan {
         side:route.cruiser.sides[Math.floor(this.sample(this.cycle,'side')*route.cruiser.sides.length)]};
       if(kind==='station'){
         const c=route.station;
-        segment.portals=[segment.start,segment.end].map((d,index)=>({id:`${segment.id}:portal:${index}`,d,
-          x:(this.sample(this.cycle,`door-x:${index}`)*2-1)*c.openingOffsetX,
-          y:(this.sample(this.cycle,`door-y:${index}`)*2-1)*c.openingOffsetY}));
+        segment.portals=this.stationPortals(segment);
         segment.obstacles=[];
         for(let d=segment.start+c.obstacleStart;d<segment.end-c.runwayDistance;d+=c.obstacleSpacing){
+          if(segment.portals.some(portal=>Math.abs(portal.d-d)<c.runwayDistance))continue;
           const index=segment.obstacles.length;
           segment.obstacles.push({id:`${segment.id}:bulkhead:${index}`,d,
             x:(index%2?1:-1)*c.obstacleOffsetX,y:(this.sample(this.cycle,`bulkhead:${index}`)*2-1)*c.obstacleOffsetY,
@@ -38,6 +37,37 @@ class RoutePlan {
       }
       this.segments.push(segment);this.end=segment.end;this.cycle++;
     }
+  }
+  stationPortals(segment){
+    const c=route.station.chains;
+    const spacing=Math.max(c.minimumSpacing,race.cruiseSpeed(segment.end)*c.speedAllowance*(c.reactionSeconds+c.steeringSeconds));
+    const capacity=Math.max(1,Math.min(c.maxWalls,1+Math.floor((segment.end-segment.start-c.groupGap)/spacing)));
+    const desired=this.sample(segment.index,'door-chain-frequency')<c.frequency
+      ?2+Math.floor(this.sample(segment.index,'door-chain-count')*(c.maxWalls-1)):1;
+    const count=Math.min(capacity,desired);
+    const portals=[];
+    const add=(d,chainId,chainIndex)=>{
+      const index=portals.length,dimensions=route.openingDimensions(d),bounds=route.openingBounds(dimensions);
+      let x=(this.sample(segment.index,`door:${index}:x`)*2-1)*bounds.x;
+      let y=(this.sample(segment.index,`door:${index}:y`)*2-1)*bounds.y;
+      if(this.sample(segment.index,`door:${index}:edge`)<route.station.openings.edgeChance){
+        const sign=this.sample(segment.index,`door:${index}:edge-sign`)<.5?-1:1;
+        if(this.sample(segment.index,`door:${index}:edge-axis`)<.5)x=sign*bounds.x;
+        else y=sign*bounds.y;
+      }
+      const previous=portals.at(-1);
+      if(previous){
+        const shift=Math.hypot(x-previous.x,y-previous.y);
+        const maximum=route.openingShiftLimit(previous.d,d,previous.chainId===chainId);
+        const fraction=shift?Math.min(1,maximum/shift):1;
+        x=math.clamp(math.mix(previous.x,x,fraction),-bounds.x,bounds.x);
+        y=math.clamp(math.mix(previous.y,y,fraction),-bounds.y,bounds.y);
+      }
+      portals.push({id:`${segment.id}:portal:${index}`,d,x,y,...dimensions,chainId,chainIndex,exterior:chainIndex===0});
+    };
+    for(let index=0;index<count;index++)add(segment.start+index*spacing,`${segment.id}:entry`,index);
+    add(segment.end,`${segment.id}:exit`,0);
+    return portals;
   }
   between(first,last){
     this.extend(last);
@@ -55,7 +85,7 @@ class RoutePlan {
     // Include both adjacent segments so a checkpoint coincident with a station exit fits its door.
     for(const station of this.between(distance-route.gates.portalRange,distance+route.gates.portalRange)){
       const portal=station.portals?.find(p=>Math.abs(p.d-distance)<=route.gates.portalRange);
-      if(portal)return {shape:'rectangle',x:portal.x,y:portal.y,rx:route.station.openingHalfWidth-inset,ry:route.station.openingHalfHeight-inset};
+      if(portal)return {shape:'rectangle',x:portal.x,y:portal.y,rx:portal.rx-inset,ry:portal.ry-inset};
     }
     if(segment.kind==='station')return {shape:'ellipse',x:0,y:0,rx:route.station.halfWidth-inset,ry:route.station.halfHeight-inset};
     return {shape:'circle',x:0,y:0};
@@ -120,7 +150,7 @@ class RoutePlan {
       for(const portal of segment.portals){
         const front=portal.d-c.portalDepth;
         if(s.previousDistance>portal.d+c.portalDepth||s.distance<front-route.contactMargin)continue;
-        if(Math.abs(p.x-portal.x)<=c.openingHalfWidth-flight.shipRadius&&Math.abs(p.y-portal.y)<=c.openingHalfHeight-flight.shipRadius)continue;
+        if(Math.abs(p.x-portal.x)<=portal.rx-flight.shipRadius&&Math.abs(p.y-portal.y)<=portal.ry-flight.shipRadius)continue;
         return {id:portal.id,kind:'portal',penetrating:s.distance>=front,
           resolve:()=>{
             s.distance=Math.min(s.distance,front-route.contactEpsilon);s.previousDistance=Math.min(s.previousDistance,s.distance);

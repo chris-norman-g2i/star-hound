@@ -76,7 +76,7 @@ class FlightScene {
   makeStars() {
     const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(gfx.stars(),3));
     // Small octahedra, rather than circular sprites: even the distant stars are polygonal.
-    const starMaterial=new THREE.MeshBasicMaterial({color:renderMath.starColor});
+    const starMaterial=new THREE.MeshBasicMaterial({color:renderMath.starColor,fog:false});
     this.stars=new THREE.InstancedMesh(this.geometry('octa'),starMaterial,gfx.starCount);
     const starPositions=geometry.attributes.position;const object=new THREE.Object3D();
     for(let i=0;i<gfx.starCount;i++){object.position.fromBufferAttribute(starPositions,i);object.scale.setScalar(renderMath.starSize);object.updateMatrix();this.stars.setMatrixAt(i,object.matrix);}

@@ -52,10 +52,10 @@ class FlightParticles {
 class FlightSpeedEffects {
   constructor(renderer,camera){
     this.renderer=renderer;this.camera=camera;this.historyValid=false;this.readIndex=0;
-    this.stars=Array.from({length:speedEffects.streakCount},()=>this.star());
+    this.stars=Array.from({length:speedEffects.streakCount},()=>speedEffects.star());
     this.positions=new Float32Array(this.stars.length*6);
     const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.BufferAttribute(this.positions,3).setUsage(THREE.DynamicDrawUsage));
-    this.lines=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:0xbdeeff,transparent:true,opacity:0,depthWrite:false}));
+    this.lines=new THREE.LineSegments(geometry,new THREE.LineBasicMaterial({color:speedEffects.stars.color,transparent:true,opacity:0,depthWrite:false}));
     this.lines.frustumCulled=false;camera.add(this.lines);
     this.frame=new THREE.WebGLRenderTarget(1,1);
     this.history=[new THREE.WebGLRenderTarget(1,1),new THREE.WebGLRenderTarget(1,1)];
@@ -74,18 +74,14 @@ class FlightSpeedEffects {
     this.quad=new THREE.Mesh(new THREE.PlaneGeometry(2,2),this.blurMaterial);this.postScene.add(this.quad);
     this.hud=document.getElementById('hud');
   }
-  star(){
-    const x=math.visualRandom(-100,100),y=math.visualRandom(-65,65);
-    return {x:Math.abs(x)<7?(x<0?-7:7):x,y,z:math.visualRandom(-400,-8)};
-  }
   clear(){this.historyValid=false;if(this.hud)this.hud.style.filter='';}
   update(s,dt){
-    const amount=speedEffects.intensity(s.speed),length=.4+amount*(3+s.speed*.11);
+    const amount=speedEffects.intensity(s.speed),length=speedEffects.streakLength(s.speed);
     for(const [i,star] of this.stars.entries()){
-      star.z+=s.speed*dt;if(star.z>-8)star.z-=392;
-      this.positions.set([star.x,star.y,star.z,star.x,star.y,Math.min(-2,star.z+length)],i*6);
+      speedEffects.advanceStar(star,s.speed,dt);
+      this.positions.set([star.x,star.y,star.z,star.x,star.y,Math.min(-speedEffects.stars.depth.min,star.z+length)],i*6);
     }
-    this.lines.geometry.attributes.position.needsUpdate=true;this.lines.material.opacity=amount*.72;
+    this.lines.geometry.attributes.position.needsUpdate=true;this.lines.material.opacity=amount*speedEffects.stars.opacity;
     if(this.hud)this.hud.style.filter=`blur(${speedEffects.hudBlur(s.speed).toFixed(2)}px)`;
   }
   render(scene,camera,s,dt){
