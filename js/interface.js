@@ -3,8 +3,9 @@
 const {ui,math,hull}=namespace.settings;
 class FlightInterface {
   constructor(){
-    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','hull-instrument','hull-meter','hull-fill','hull-text','lives','lives-text','speed','speed-charge','speed-fill','ship-heat','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','checkpoint-note','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','music-debug','music-debug-name','music-debug-status','tuning-dialog','options-button','options-dialog','close-options'])this.nodes[id]=document.getElementById(id);
+    this.nodes={};for(const id of ['title-screen','hud','overlay','audio-button','hull-instrument','hull-meter','hull-fill','hull-text','lives','lives-text','speed','speed-charge','speed-fill','ship-heat','pickup-toast','overlay-eyebrow','overlay-title','overlay-copy','run-stats','resume','restart','home','launch','manual','flight-manual','close-manual','pause-button','checkpoint-resume','tune-button','new-run-dialog','new-run-note','confirm-new','resume-checkpoint-dialog','checkpoint-success','music-debug','music-debug-name','music-debug-status','tuning-dialog','options-button','options-dialog','close-options'])this.nodes[id]=document.getElementById(id);
     for(const id of ['pause-menu','flight-results','results-home'])this.nodes[id]=document.getElementById(id);
+    this.nodes['tune-button'].classList.toggle('hidden',!ui.developerSettings.visible);
     this.heatFills=Array.from(this.nodes['ship-heat'].querySelectorAll('.heat-fill'));
     for(const selector of ['.heat-track','.heat-fill'])this.nodes['ship-heat'].querySelectorAll(selector).forEach((path,index)=>path.setAttribute('d',ui.heatArcPath(index===0?-1:1)));
     const heat=ui.hud.heat,health=ui.hud.hull;
@@ -23,7 +24,7 @@ class FlightInterface {
   }
   audio(sound){
     this.nodes['audio-button'].textContent=sound.muted?'UNMUTE ALL':'MUTE ALL';
-    for(const channel of ['music','effects','voice'])document.getElementById(channel+'-volume-value').textContent=Math.round(sound.volumes[channel]*100)+'%';
+    for(const channel of Object.keys(namespace.settings.audio.channels))document.getElementById(channel+'-volume-value').textContent=Math.round(sound.volumes[channel]*100)+'%';
   }
   music(sound){
     const status=sound.musicStatus,n=this.nodes;
@@ -42,12 +43,12 @@ class FlightInterface {
     const n=this.nodes,c=store.current;const label=store.warning||(c?`CHECKPOINT ${c.wave} · ${c.lives} LIVES · NEW FLIGHT CLEARS PROGRESS`:'3 LIVES · ENDLESS WAVES · NO CHECKPOINT YET');
     const signature=JSON.stringify([label,c?.wave,c?.lives]);
     if(this.lastCheckpoint===signature)return;this.lastCheckpoint=signature;
-    n['checkpoint-resume'].disabled=!c;
-    n['checkpoint-resume'].setAttribute('aria-label',c?`Continue from checkpoint at wave ${c.wave}`:'Continue unavailable: no checkpoint');
-    n['checkpoint-note'].textContent=label;
+    // n['checkpoint-resume'].disabled=!c;
+    // n['checkpoint-resume'].setAttribute('aria-label',c?`Continue from checkpoint at wave ${c.wave}`:'Continue unavailable: no checkpoint');
+    // n['checkpoint-note'].textContent=label;
   }
   confirmNew(store){
-    this.nodes['new-run-note'].textContent=`Start a new flight, or resume your wave ${store.current.wave} checkpoint.`;
+    this.nodes['new-run-note'].textContent=`Surive as long as you can.`;
     this.nodes['new-run-dialog'].showModal();this.nodes['resume-checkpoint-dialog'].focus();
   }
   update(s,titleTime=0,dt=0,shipAnchor=null){
@@ -105,7 +106,7 @@ class FlightInterface {
     if(!menu)return false;
     const isTab=event.code===keys.tab&&menu.trapFocus;
     if(!isTab&&event.code!==keys.previous&&event.code!==keys.next)return false;
-    const choices=menu.actions.map(id=>this.nodes[id]).filter(node=>!node.disabled);
+    const choices=menu.actions.map(id=>this.nodes[id]).filter(node=>node&&!node.disabled&&node.getClientRects().length>0);
     const direction=isTab?(event.shiftKey?keys.previous:keys.next):event.code;
     const index=choices.indexOf(document.activeElement);choices[ui.menuIndex(index,choices.length,direction)].focus();event.preventDefault();return true;
   }

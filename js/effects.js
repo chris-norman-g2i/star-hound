@@ -3,10 +3,10 @@
 const THREE=namespace.THREE;
 const {gfx,tunnel,speedEffects,math}=namespace.settings;
 
-/** One soft-sprite particle stream serves exhaust, impacts and celebrations. */
+/** Bounded soft sprites serve impact bursts and checkpoint celebrations. */
 class FlightParticles {
-  constructor(scene){
-    this.particles=[];this.emission=0;
+  constructor(scene,plan){
+    this.plan=plan;this.particles=[];
     const capacity=gfx.particle.capacity;
     this.positions=new Float32Array(capacity*3);this.colors=new Float32Array(capacity*3);
     this.sizes=new Float32Array(capacity);this.alpha=new Float32Array(capacity);this.smoke=new Float32Array(capacity);
@@ -30,15 +30,11 @@ class FlightParticles {
     this.color=new THREE.Color();
   }
   add(particles){this.particles.push(...particles);}
-  clear(){this.particles.length=0;this.emission=0;this.geometry.setDrawRange(0,0);}
+  clear(){this.particles.length=0;this.geometry.setDrawRange(0,0);}
   update(s,dt){
-    if(s.mode==='playing'){
-      this.emission+=dt*gfx.particle.emissionRate;
-      while(this.emission>=1){this.add(gfx.trail(s));this.emission--;}
-    }
     this.particles=this.particles.filter(p=>{gfx.stepParticle(p,dt);return p.age<p.life;}).slice(-gfx.particle.capacity);
     for(const [i,p] of this.particles.entries()){
-      this.positions.set(tunnel.world(p.x,p.y,p.d,s.distance),i*3);
+      this.positions.set(this.plan.world(p.x,p.y,p.d,s.distance),i*3);
       this.color.set(p.color);this.colors.set([this.color.r,this.color.g,this.color.b],i*3);
       this.sizes[i]=gfx.particleScale(p);this.alpha[i]=gfx.particleOpacity(p);this.smoke[i]=p.kind==='smoke'?1:0;
     }

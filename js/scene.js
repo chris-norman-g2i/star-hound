@@ -17,7 +17,9 @@ class FlightScene {
     this.geometries=new Map();this.materials=new Map();this.entities=new Map();this.shipMaterials=new Map();this.crashPresentation=null;
     this.ship=this.makeShip();this.scene.add(this.ship);
     this.route=route||new namespace.RoutePlan();this.makeStars();this.scene.add(this.camera);
-    this.particles=new namespace.FlightParticles(this.scene);
+    this.particles=new namespace.FlightParticles(this.scene,this.route);
+    this.motifView=new namespace.FlightMotifView(this.scene,this.route,this.ship,this.dog);
+    this.exhaust=new namespace.FlightExhaust(this.scene,this.route);
     this.environment=new namespace.FlightEnvironment(this.scene,this.route);
     this.speedEffects=new namespace.FlightSpeedEffects(this.renderer,this.camera);
     this.isolateShipMaterials(this.ship);
@@ -58,10 +60,7 @@ class FlightScene {
   }
   makeShip() {
     const group=this.parts(assets.shipParts);this.dog=this.parts(assets.dogParts);group.add(this.dog);
-    this.cannons=new THREE.Group();group.add(this.cannons);this.engines=[];
-    const engineGeometry=new THREE.ConeGeometry(...assets.engine.shape.slice(1));
-    const engineMaterial=new THREE.MeshBasicMaterial({color:assets.engine.color,transparent:true,opacity:renderMath.engineOpacity});
-    for(const position of assets.engine.positions){const flame=new THREE.Mesh(engineGeometry,engineMaterial);flame.position.fromArray(position);flame.rotation.fromArray(assets.engine.rotation);group.add(flame);this.engines.push(flame);}
+    this.cannons=new THREE.Group();group.add(this.cannons);
     const shieldMat=new THREE.MeshBasicMaterial({color:renderMath.shieldColor,wireframe:true,transparent:true,opacity:renderMath.shieldOpacity});
     this.shield=new THREE.Mesh(new THREE.IcosahedronGeometry(renderMath.shieldRadius,renderMath.shieldDetail),shieldMat);this.shield.visible=false;group.add(this.shield);
     return group;
@@ -100,12 +99,12 @@ class FlightScene {
     }
   }
   applyTuning() {
-    this.scene.fog.density=gfx.fogDensity;this.environment.clear();this.route.reset(tuning.seed);
+    this.scene.fog.density=gfx.fogDensity;this.environment.clear();this.motifView.clear();this.exhaust.clear();this.route.reset(tuning.seed);
   }
   updateReticle(s) {
     this.camera.updateMatrixWorld();
     for(const [i,point] of weapon.aimPoints(s).entries()){
-      this.aimPoint.fromArray(tunnel.world(point.x,point.y,point.d,s.distance)).project(this.camera);
+      this.aimPoint.fromArray(this.route.world(point.x,point.y,point.d,s.distance)).project(this.camera);
       const position=renderMath.reticlePosition(this.aimPoint,window.innerWidth,window.innerHeight),marker=this.aimMarkers[i];
       marker.style.left=position.x+'px';marker.style.top=position.y+'px';
     }
@@ -144,9 +143,9 @@ class FlightScene {
   synchronize(entities,bullets,s) {
     const live=new Set([...entities,...bullets]);
     for(const e of this.entities.keys())if(!live.has(e))this.removeEntity(e);
-    for(const e of live){const mesh=this.entities.get(e)||this.makeEntity(e);mesh.position.fromArray(tunnel.world(e.x,e.y,e.d,s.distance));if(e.type!=='bullet'&&e.type!=='hostile')mesh.rotation.fromArray(assets.rotations(e));}
+    for(const e of live){const mesh=this.entities.get(e)||this.makeEntity(e);mesh.position.fromArray(this.route.world(e.x,e.y,e.d,s.distance));if(e.type!=='bullet'&&e.type!=='hostile')mesh.rotation.fromArray(assets.rotations(e));}
   }
-  burst(e){this.particles.add(gfx.explode(e));}
+  burst(e){this.particles.add(e.type==='sparks'?gfx.explode(e,gfx.particle.sparkCount):gfx.explode(e));}
   celebrate(s){this.particles.add(gfx.fireworks(s));}
   clearCrash(){
     if(!this.crashPresentation)return;
@@ -156,14 +155,14 @@ class FlightScene {
   }
   clear(){
     for(const e of this.entities.keys())this.removeEntity(e);
-    this.particles.clear();this.environment.clear();this.speedEffects.clear();this.clearCrash();
+    this.particles.clear();this.exhaust.clear();this.motifView.clear();this.environment.clear();this.speedEffects.clear();this.clearCrash();
   }
   startCrash(s){
     this.clearCrash();this.rainbow({...s,invincible:0});
     const pose=flight.shipPose(s);this.ship.position.fromArray(pose.position);this.ship.rotation.fromArray(pose.rotation);
     this.ship.scale.setScalar(renderMath.flightScale);this.ship.updateMatrixWorld(true);
     const group=new THREE.Group(),pieces=[],resources=[];
-    const meshes=[...this.ship.children.filter(mesh=>mesh.isMesh&&mesh!==this.shield&&!this.engines.includes(mesh)),...this.cannons.children];
+    const meshes=[...this.ship.children.filter(mesh=>mesh.isMesh&&mesh!==this.shield),...this.cannons.children];
     for(const source of meshes){
       const piece=source.clone();source.matrixWorld.decompose(piece.position,piece.quaternion,piece.scale);
       group.add(piece);pieces.push({mesh:piece,origin:piece.position.clone(),rotation:piece.rotation.clone(),
@@ -202,9 +201,20 @@ class FlightScene {
     this.rainbow(s);this.shield.visible=s.protection>0;this.shield.scale.setScalar(renderMath.flightShieldScale(s.elapsed));
     this.route.use(s.seed);this.synchronize(entities,bullets,s);this.particles.update(s,dt);this.environment.update(s);this.speedEffects.update(s,dt);this.updateCrash(s);
     this.updateReticle(s);
+    this.motifView.update(s,dt);this.exhaust.update(s,dt,this.engineEmitters(s));
     this.dog.rotation.y=assets.dogAnimation(titleTime);
-    for(const engine of this.engines)engine.scale.fromArray(assets.engineScale(titleTime,s.boosting||s.turbo>0));
     this.speedEffects.render(this.scene,this.camera,s,dt);
+  }
+  engineEmitters(s){
+    const base=this.route.center(s.distance),emitters=this.motifView.emitters(s);
+    this.ship.updateMatrixWorld(true);
+    const rear=new THREE.Vector3(0,0,1).applyQuaternion(this.ship.quaternion);
+    for(const [index,position] of assets.engine.positions.entries()){
+      const point=this.ship.localToWorld(new THREE.Vector3().fromArray(position));
+      emitters.unshift({id:`player:${index}`,profile:'player',x:point.x+base.x,y:point.y+base.y,d:s.distance-point.z,
+        speed:s.speed,direction:[rear.x,rear.y,-rear.z],scale:s.boosting||s.turbo>0?namespace.settings.exhaust.boostScale:1});
+    }
+    return emitters;
   }
   resize() {this.renderer.setSize(window.innerWidth,window.innerHeight);this.camera.aspect=math.aspect(window.innerWidth,window.innerHeight);this.camera.updateProjectionMatrix();this.particles.resize(window.innerHeight,this.renderer.getPixelRatio());this.speedEffects.resize(window.innerWidth,window.innerHeight);}
 }

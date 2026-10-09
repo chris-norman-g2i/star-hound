@@ -10,19 +10,19 @@
 <body>
 <canvas id="world" aria-label="3D space runner"></canvas>
 <div id="load-error" class="hidden" role="alert">Unable to load the flight engine. Check your internet connection and reload.</div>
-<aside id="music-debug" aria-label="Temporary music debug"><span>P · NEXT TRACK FROM START</span><strong id="music-debug-name"></strong><small id="music-debug-status"></small></aside>
+<aside id="music-debug" class="hidden" aria-label="Temporary music debug"><span>P · NEXT TRACK FROM START</span><strong id="music-debug-name"></strong><small id="music-debug-status"></small></aside>
 <main id="title-screen" class="screen hangar-title" aria-label="Starhound Bone Chaser hangar">
 <div class="hangar-stage">
-<img id="hangar-art" class="hangar-art" src="./assets/title/hangar-clean-v1.png" alt="Starhound Bone Chaser. A dog pilot with an orange scarf stands beside a mint starship in a hangar overlooking a distant planet." width="1672" height="941" decoding="async" draggable="false">
+<img id="hangar-art" class="hangar-art" src="./assets/title/hangar-clean-v2.png" alt="Starhound Bone Chaser. A dog pilot with an orange scarf stands beside a mint starship in a hangar overlooking a distant planet." width="1672" height="941" decoding="async" draggable="false">
 <div id="hangar-animation" class="hangar-wind" aria-hidden="true"><div id="hangar-tail" class="wind-sprite"></div><div id="hangar-scarf" class="wind-sprite"></div></div>
 <div id="hangar-lights" class="hangar-lights" aria-hidden="true"></div>
 <h1 class="sr-only">STARHOUND · BONE CHASER</h1>
 <nav class="hangar-menu" aria-label="Main menu">
 <button id="launch" class="hangar-action hangar-primary"><span class="menu-star" aria-hidden="true">✦</span><span>START FLIGHT</span></button>
-<button id="checkpoint-resume" class="hangar-action" disabled aria-describedby="checkpoint-note"><span class="menu-star" aria-hidden="true">✦</span><span>CONTINUE</span></button>
+<!-- <button id="checkpoint-resume" class="hangar-action" disabled aria-describedby="checkpoint-note"><span class="menu-star" aria-hidden="true">✦</span><span>CONTINUE</span></button> -->
 <button id="flight-manual" class="hangar-action"><span class="menu-star" aria-hidden="true">✦</span><span>FLIGHT MANUAL</span></button>
 <button id="options-button" class="hangar-action"><span class="menu-star" aria-hidden="true">✦</span><span>OPTIONS</span></button>
-<button id="tune-button" class="hangar-action developer-action"><span class="menu-star" aria-hidden="true">✦</span><span>DEVELOPER SETTINGS</span></button>
+<button id="tune-button" class="hangar-action developer-action hidden"><span class="menu-star" aria-hidden="true">✦</span><span>DEVELOPER SETTINGS</span></button>
 </nav>
 <p id="checkpoint-note" class="hangar-status"></p>
 <p class="hangar-keys">↑ ↓ SELECT &nbsp; ENTER CONFIRM</p>
@@ -86,7 +86,7 @@
 <dialog id="options-dialog"><button id="close-options" class="close" aria-label="Close options">×</button><div class="eyebrow">FLIGHT PREFERENCES</div><h2>OPTIONS.</h2><section class="audio-options"><h3>AUDIO MIX</h3>
 <label>Music <input id="music-volume" type="range" min="0" max="1" step=".01" value="1"><output id="music-volume-value">100%</output></label>
 <label>Sound effects <input id="effects-volume" type="range" min="0" max="1" step=".01" value="1"><output id="effects-volume-value">100%</output></label>
-<label>Voices <input id="voice-volume" type="range" min="0" max="1" step=".01" value="1"><output id="voice-volume-value">100%</output></label>
+<label class="hidden">Voices <input id="voice-volume" type="range" min="0" max="1" step=".01" value="0"><output id="voice-volume-value">0%</output></label>
 <button id="audio-button" class="icon-button">MUTE ALL</button>
 </section><p>Your audio preferences are saved automatically.</p></dialog>
 <dialog id="tuning-dialog"><button id="close-tuning" class="close" aria-label="Close developer settings">×</button><div class="eyebrow">FLIGHT LAB</div><h2>DEVELOPER SETTINGS.</h2>
@@ -98,6 +98,7 @@
 <p>Difficulty grows continuously with distance. Growth distance sets the scale; the multiplier controls its rate (0 keeps starting difficulty), and the exponent shapes the curve. Speed, obstacle count, health, drift and fire rate use this shared progression.</p>
 <p>Minimum pickup spacing applies everywhere, including bonus stretches and enemy drops. Frequency is the chance at each eligible opportunity: 0 disables pickups, 1 uses every opportunity that satisfies the minimum gap.</p>
 <p>Asteroid size sets the base radius. Size variability multiplies it independently for each asteroid (default 0.6–1.6×). Each asteroid has its own irregular surface with random dents and bulges. Asteroids pack randomly around their center of mass, favoring nearby positions while keeping the specified surface gap at spawn. Quantity determines how many belong to a cluster. The center-distance range places each cluster at a random angle around the track. Clusters spawn 1,000 units ahead. Each instance samples its values once. Tumble uses radians per second; velocity uses units per second in a fixed random direction.</p>
+<p>Traffic can merge into your path or approach head-on. Vehicle impacts cost 60% hull; pileup wreckage costs 15%. Close passes draw angry horns. Movie crossings include glass, strawberry carts and stacked boxes (10% hull each), plus clothing that briefly sticks to the pilot and slows the ship.</p>
 <p>Open space share controls the distance spent in open space. Motif weights control their relative frequency; a weight of zero disables that motif. Station openings start larger and shrink toward their minimum dimensions with difficulty. Their positions span the track while remaining fully contained. Chains contain up to three walls with small, reachable opening shifts; wall spacing increases with speed to allow steering time. Ring bonuses decay gradually and are lost or reduced by collisions.</p>
 <p id="tuning-status" role="status"></p><textarea id="settings-export" class="hidden" readonly aria-label="Complete settings.js source for manual copy"></textarea></dialog>
 <!-- Ordered classic scripts work on both file:// and static HTTP(S) hosting. -->
@@ -110,6 +111,10 @@
 <script src="./js/sound.js"></script>
 <script src="./js/effects.js"></script>
 <script src="./js/route.js"></script>
+<script src="./js/motif-systems.js"></script>
+<script src="./js/motif-textures.js"></script>
+<script src="./js/motif-view.js"></script>
+<script src="./js/exhaust.js"></script>
 <script src="./js/environment.js"></script>
 <script src="./js/scene.js"></script>
 <script src="./js/systems.js"></script>

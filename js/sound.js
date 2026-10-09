@@ -1,6 +1,7 @@
 (function (namespace) {
 'use strict';
-const { music, sfx, voices, speedRings } = namespace.settings;
+const { audio, music, sfx, voices, speedRings, traffic, tropes } = namespace.settings;
+const clampVolume=value=>Math.max(audio.volume.min,Math.min(audio.volume.max,value));
 
 /** Web Audio resource ownership and sample-accurate scheduling.
  * Composition, note frequencies, envelopes and signal tuning come from settings.
@@ -9,10 +10,11 @@ class SoundEngine {
   constructor() {
     this.context = null; this.enabled = false; this.paused = false;
     this.music=null;this.director=new namespace.MusicDirector();this.lastState=null;
-    this.muted=false;this.volumes={music:1,effects:1,voice:1};
-    try{const preferences=JSON.parse(window.localStorage.getItem('starhound.audio.v1'));
-      if(preferences){this.muted=preferences.muted===true;for(const channel of Object.keys(this.volumes))if(Number.isFinite(preferences[channel]))this.volumes[channel]=Math.max(0,Math.min(1,preferences[channel]));}
+    this.muted=false;this.volumes=Object.fromEntries(Object.entries(audio.channels).map(([channel,config])=>[channel,config.defaultVolume]));
+    try{const preferences=JSON.parse(window.localStorage.getItem(audio.preferencesKey));
+      if(preferences){this.muted=preferences.muted===true;for(const [channel,config] of Object.entries(audio.channels))if(config.adjustable&&Number.isFinite(preferences[channel]))this.volumes[channel]=clampVolume(preferences[channel]);}
     }catch{}
+    this.savePreferences();
     this.voiceActive=false;this.voices=new namespace.VoiceEngine(active=>{
       this.voiceActive=active;
       if(this.context)this.applyMix();
@@ -76,11 +78,11 @@ class SoundEngine {
     return input;
   }
   savePreferences(){
-    try{window.localStorage.setItem('starhound.audio.v1',JSON.stringify({...this.volumes,muted:this.muted}));}catch{}
+    try{window.localStorage.setItem(audio.preferencesKey,JSON.stringify({...this.volumes,muted:this.muted}));}catch{}
   }
   setVolume(channel,value){
-    if(!(channel in this.volumes))return;
-    this.volumes[channel]=Math.max(0,Math.min(1,value));this.savePreferences();
+    if(!audio.channels[channel]?.adjustable||!Number.isFinite(value))return;
+    this.volumes[channel]=clampVolume(value);this.savePreferences();
     if(this.context)this.applyMix();
   }
   async toggle(){
@@ -132,6 +134,25 @@ class SoundEngine {
     if(!this.enabled||!this.context||this.paused)return;
     const c=speedRings.sound,frequency=c.baseFrequency*c.octaveRatio**((chain-1)*c.semitonesPerHit/c.semitonesPerOctave);
     this.tone({from:frequency,to:frequency*c.endRatio,duration:c.duration,gain:c.gain,wave:c.wave},this.context.currentTime,x);
+  }
+  horn(kind,x,beeps=1){
+    if(!this.enabled||!this.context||this.paused)return;
+    const c=traffic.horn,time=this.context.currentTime,frequencies=c.frequencies[kind];
+    for(let beep=0;beep<Math.min(beeps,c.maxBeeps);beep++)for(const frequency of frequencies){
+      this.tone({from:frequency,to:frequency,duration:c.beepSeconds,gain:c.gain/frequencies.length,wave:'sawtooth'},
+        time+beep*(c.beepSeconds+c.gapSeconds),x);
+    }
+  }
+  motif(kind,x){
+    if(!this.enabled||!this.context||this.paused)return;
+    const time=this.context.currentTime;
+    if(kind==='complaint'){
+      const c=tropes.complaint;
+      for(let beep=0;beep<c.beeps;beep++)this.tone(c,time+beep*c.gapSeconds,x);
+      return;
+    }
+    const c=tropes.sounds[kind];
+    if(c?.noiseCutoff)this.explosion(c,time,x);else if(c)this.tone(c,time,x);
   }
   clearVoices() {this.voices.clear();}
   update(state,dt=.025) {

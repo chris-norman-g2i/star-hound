@@ -4,7 +4,7 @@ const {race,flight,weapon,encounters,pickups,propulsion,crash,checkpoint,voices}
 
 /** Runs simulation and dispatches typed events. Rendering and sound own their resources. */
 class FlightSystems {
-  constructor(scene,sound,route=scene.route||new namespace.RoutePlan()){this.scene=scene;this.sound=sound;this.entities=[];this.bullets=[];this.route=route;}
+  constructor(scene,sound,route=scene.route||new namespace.RoutePlan()){this.scene=scene;this.sound=sound;this.entities=[];this.bullets=[];this.route=route;this.motifs=new namespace.InteractiveMotifs(route,scene,sound);}
   reset(){this.entities.length=0;this.bullets.length=0;this.scene.clear();this.route.reset();}
   step(s,dt,keys){
     if(s.mode==='crashing'){crash.advance(s,dt);return;}
@@ -14,14 +14,15 @@ class FlightSystems {
     this.route.collide(s,this.sound);s.wave=race.waveAt(s.distance);s.sector=race.sectorAt(s.wave);s.bestWave=Math.max(bestWave,s.wave);
     if(s.wave!==wave)this.crossCheckpoint(s);
     this.spawn(s);this.shoot(s,keys);this.move(s,dt);
-    this.collide(s);this.route.crossRings(s,previousPlayer,this.sound);this.cleanup(s);
+    this.motifs.step(s,dt,previousPlayer,this.bullets);this.collide(s);this.route.crossRings(s,previousPlayer,this.sound);this.cleanup(s);
+    if(s.checkpointPending){s.pendingCheckpoint=checkpoint.capture(s);s.checkpointPending=false;}
     if(s.hull<=0){
       crash.begin(s);this.scene.startCrash(s);this.sound.crash();
     }
   }
   crossCheckpoint(s){
     s.checkpointWave=s.wave;s.checkpointCelebration=2.4;
-    s.pendingCheckpoint=checkpoint.capture(s);
+    s.checkpointPending=true;
     this.scene.celebrate(s);this.sound.play('checkpoint');this.sound.voice('checkpoint',s);
   }
   spawn(s){

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs><pattern id="grain" width="11" height="11" patternUnits="userSpaceOnUse"><path d="M0 2h11M0 8h11" stroke="#805e3c" stroke-opacity=".12"/></pattern></defs>
+<rect width="512" height="512" fill="#b88958"/><rect width="512" height="512" fill="url(#grain)"/>
+<path d="M0 18h512M0 492h512M18 0v512M492 0v512" stroke="#68492e" stroke-width="3" opacity=".6"/>
+<path d="M234 0h44v512" fill="#d1ad7b" opacity=".65"/><path d="M245 0v512M266 0v512" stroke="#e3c695" opacity=".45"/>
+<g transform="translate(256 237) rotate(-7)"><rect x="-204" y="-163" width="408" height="304" rx="22" fill="#9b4823"/>
+<path d="M-93-36a93 93 0 0 1 186 0M-106-36h212" fill="none" stroke="#fff1d5" stroke-width="12"/>
+<ellipse cy="-80" rx="129" ry="25" transform="rotate(-17)" fill="none" stroke="#f4c783" stroke-width="5"/>
+<circle cx="116" cy="-113" r="10" fill="#f4c783"/>
+<text y="23" text-anchor="middle" fill="#fff4d8" font-family="sans-serif" font-weight="900" font-size="44">DOME DEPOT</text>
+<text y="66" text-anchor="middle" fill="#f4c783" font-family="sans-serif" font-size="17">DO IT YOURSELF. IN A VACUUM.</text>
+<text y="111" text-anchor="middle" fill="#fff1d5" font-family="monospace" font-size="15">HABITAT PARTS • ORBITAL DELIVERY</text></g>
+<g fill="#5e412c" font-family="monospace" font-size="16"><text x="34" y="453">↑ THIS SIDE OF THE GALAXY ↑</text><text x="34" y="476">DD-042 // AIRLOCK APPROVED</text></g>
+<g stroke="#503722" stroke-width="3" opacity=".7"><path d="M397 436v43m7-43v43m5-43v43m9-43v43m5-43v43m8-43v43m6-43v43m9-43v43m6-43v43"/></g>
+<path d="m49 76 33 6m346 314 22-8m-18 17 30-7M31 365l18-5" stroke="#ecd0a0" stroke-width="4" opacity=".35"/>
+</svg>

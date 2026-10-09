@@ -132,9 +132,11 @@ const race = ({
  */
 const propulsion = {
   recoverySeconds:1.2,enemyBonusRetention:.67,enemySpeedRetention:.55,
-  state() {return {boostBonus:0,turboBonus:0,ringBonus:0,boostBlocked:false,recovery:null};},
+  state() {return {boostBonus:0,turboBonus:0,ringBonus:0,boostBlocked:false,recovery:null,drag:null};},
   bonus(s) {return s.charge*.0018+s.motion.turboBonus+s.motion.boostBonus+s.motion.ringBonus;},
-  target(s) {return race.cruiseSpeed(s.distance)*(1+this.bonus(s));},
+  target(s) {return race.cruiseSpeed(s.distance)*(1+this.bonus(s))*this.dragScale(s);},
+  dragScale(s){const drag=s.motion.drag;return drag?math.mix(1,drag.multiplier,math.clamp(drag.remaining/tropes.clothes.recoverySeconds,0,1)):1;},
+  clothing(s,kind,color,duration){s.motion.drag={kind,color,remaining:duration,duration,multiplier:tropes.clothes.speedMultiplier};s.speed=Math.min(s.speed,this.target(s));},
   turbo(s) {
     s.turbo=pickups.duration.turbo;
     s.motion.turboBonus=(race.turboMultiplier-1)*(1+s.charge*.0018+s.motion.boostBonus+s.motion.ringBonus);
@@ -144,7 +146,7 @@ const propulsion = {
     if(!s.motion.recovery)s.speed=this.target(s);
   },
   impact(s,type) {
-    const obstacle=type==='rock'||type==='barrier';
+    const obstacle=type==='rock'||type==='barrier'||type==='vehicle';
     if(!obstacle&&type!=='enemy')return;
     if(obstacle){
       s.charge=0;s.turbo=0;s.motion.turboBonus=0;s.motion.boostBonus=0;s.motion.ringBonus=0;
@@ -158,6 +160,7 @@ const propulsion = {
   },
   advance(s,dt,keys) {
     const m=s.motion,held=keys.has('ShiftLeft')||keys.has('ShiftRight');
+    if(m.drag){m.drag.remaining=math.decrement(m.drag.remaining,dt);if(!m.drag.remaining)m.drag=null;}
     m.ringBonus=math.decrement(m.ringBonus,speedRings.decayPerSecond*dt);
     if(!held)m.boostBlocked=false;
     if(s.turbo<=0)m.turboBonus=0;
@@ -169,7 +172,7 @@ const propulsion = {
     if(m.recovery){
       m.recovery.elapsed+=dt;
       const t=m.recovery.elapsed>=this.recoverySeconds-1e-9?1:m.recovery.elapsed/this.recoverySeconds;
-      const target=m.recovery.cruiseOnly?race.cruiseSpeed(s.distance):this.target(s);
+      const target=m.recovery.cruiseOnly?race.cruiseSpeed(s.distance)*this.dragScale(s):this.target(s);
       s.speed=math.mix(m.recovery.from,target,t*t);
       if(t===1)m.recovery=null;
     }else s.speed=math.damp(s.speed,this.target(s),2,dt);
@@ -200,7 +203,8 @@ const checkpoint = {
     return {version:this.version,seed:s.seed,wave:s.wave,lives:s.lives,charge:s.charge,
       elapsed:s.elapsed,bestWave:s.bestWave,score:s.score,kills:s.kills,pickups:s.pickups,
       tier:s.weapon.tier,fireLevel:s.weapon.fireLevel,coolLevel:s.weapon.coolLevel,ringBonus:s.motion.ringBonus,
-      pickupDistances:[...s.pickupDistances],rules:tuning.values()};
+      pickupDistances:[...s.pickupDistances],drag:s.motion.drag?{...s.motion.drag}:null,
+      motifRuntime:s.motifRuntime?JSON.parse(JSON.stringify(s.motifRuntime)):null,rules:tuning.values()};
   },
   valid(c) {
     const finiteKeys=['wave','lives','charge','elapsed','bestWave','score','kills','pickups','tier','fireLevel','coolLevel'];
@@ -208,7 +212,7 @@ const checkpoint = {
       Number.isInteger(c.wave)&&c.wave>=1&&c.wave<=100000&&Number.isInteger(c.lives)&&c.lives>=1&&c.lives<=race.startLives&&
       c.charge>=0&&c.charge<=100&&c.elapsed>=0&&c.bestWave>=c.wave&&c.score>=0&&c.kills>=0&&c.pickups>=0&&
       ['tier','fireLevel','coolLevel'].every(k=>Number.isInteger(c[k])&&c[k]>=0&&c[k]<=3)&&
-      (c.ringBonus===undefined||Number.isFinite(c.ringBonus)&&c.ringBonus>=0)&&
+      (c.ringBonus===undefined||Number.isFinite(c.ringBonus)&&c.ringBonus>=0)&&motifState.valid(c.motifRuntime)&&motifState.validDrag(c.drag)&&
       (c.pickupDistances===undefined||Array.isArray(c.pickupDistances)&&c.pickupDistances.every(d=>Number.isFinite(d)&&d>=0))&&tuning.validCheckpoint(c.rules);
   },
   restore(c,continuation={}) {
@@ -219,6 +223,10 @@ const checkpoint = {
     race.jump(s,c.wave);s.checkpointWave=c.wave;
     s.pickupDistances=(c.pickupDistances||[]).filter(d=>d<s.distance&&d>=s.distance-pickups.minimumSpacing-encounters.despawnBehind);
     s.motion.ringBonus=Math.min(speedRings.bonusCap,c.ringBonus||0);
+    if(c.drag)s.motion.drag={...c.drag};
+    const currentRules=tuning.values(),sameMotifs=tuning.fields.filter(({path})=>['route','traffic','tropes'].includes(path.split('.')[0]))
+      .every(({path})=>JSON.stringify(currentRules[path])===JSON.stringify(c.rules[path]));
+    if(c.motifRuntime&&s.seed===c.seed&&sameMotifs)s.motifRuntime=JSON.parse(JSON.stringify(c.motifRuntime));
     if(continuation.lives!==undefined)s.lives=continuation.lives;
     if(continuation.elapsed!==undefined)s.elapsed=continuation.elapsed;
     if(continuation.bestWave!==undefined)s.bestWave=continuation.bestWave;
@@ -438,8 +446,7 @@ const assets = ({
     ['ico','cream',[.36,.71,-.13],[.2,.26,.32],[0,0,-.3]],
   ],
   cannons:{scale:[.16,.16,1.25],y:-.22,z:-1.8,color:0x263c47},
-  engine:{positions:[[-1.45,-.23,3.15],[1.45,-.23,3.15]],color:0xffa574,shape:['cone',.35,1.9,5],rotation:[1.5708,0,0]},
-  engineScale(t,fast) { return [.75,.8 + Math.sin(t*35)*.2 + (fast?.85:0),.75]; },
+  engine:{positions:[[-1.45,-.23,3.15],[1.45,-.23,3.15]]},
   dogAnimation(t) { return Math.sin(t*.75)*.075; },
   enemyParts:[
     ['octa','dark',[0,0,0],[1.5,.7,1.2],[0,0,0]],
@@ -474,7 +481,7 @@ const assets = ({
 
 const gfx = ({
   hangar:{
-    image:'./assets/title/hangar-clean-v1.png',width:1672,height:941,frames:8,frameSeconds:.24,
+    image:'./assets/title/hangar-clean-v2.png',width:1672,height:941,frames:8,frameSeconds:.24,
     sheet:{width:1774,height:887,columns:4,rows:2},
     sprites:[
       {id:'hangar-tail',image:'./assets/title/tail-wind-v2.png',size:[312,302],scale:[.8,1.2],sourceAnchor:[80,309],anchor:[1280,592],sourceWindow:{left:64,right:48}},
@@ -519,8 +526,8 @@ const gfx = ({
   clear:0x090f16,fogDensity:.0022,exposure:1.15,maxPixelRatio:1.75,
   camera:{fov:63,near:.1,far:2000,titlePosition:[5,5.6,15],titleLook:[1.6,.1,0],flightPosition:[0,3.2,12],flightLook:[0,1,-60]},
   lighting:{ambient:1.6,key:3.5,rim:4.2,keyPosition:[-6,12,8],rimPosition:[9,3,-4]},
-  particle:{capacity:1400,emissionRate:95,smokeLife:.9,plasmaLife:.24,explosionLife:1.25,
-    smokeColors:[0x8295a5,0xb4d1cc,0x647585],plasmaColors:[0xffd69a,0xff8a43,0x99fff1],explosionColors:[0xff754d,0xffcf84,0xeaf4e8]},
+  particle:{capacity:1400,sparkCount:8,explosionLife:1.25,fireworkLife:1.7,burstSpeed:18,depthSpeed:12,
+    lifeVariance:{min:.8,max:1.2},initialSize:.22,tailSize:.3,explosionColors:[0xff754d,0xffcf84,0xeaf4e8]},
   starCount:220,
   starField:{depth:{min:800,max:1600},horizontalSlope:1.2,verticalSlope:.75},
   stars() {
@@ -536,21 +543,14 @@ const gfx = ({
     return positions;
   },
   particleAt(kind,x,y,d) {
-    const cfg=this.particle,firework=kind==='firework',burst=kind==='explosion'||firework;
-    const life=kind==='smoke'?cfg.smokeLife:kind==='plasma'?cfg.plasmaLife:firework?1.7:cfg.explosionLife;
-    const colors=kind==='smoke'?cfg.smokeColors:kind==='plasma'?cfg.plasmaColors:firework?race.colors:cfg.explosionColors;
-    return {kind,x,y,d,vx:math.visualRandom(-1,1)*(burst?18:.45),vy:math.visualRandom(-1,1)*(burst?18:.45),
-      vd:burst?math.visualRandom(-12,12):-9,age:0,life:life*math.visualRandom(.8,1.2),color:math.visualPick(colors)};
+    const cfg=this.particle,firework=kind==='firework',life=firework?cfg.fireworkLife:cfg.explosionLife,
+      colors=firework?race.colors:cfg.explosionColors;
+    return {kind,x,y,d,vx:math.visualRandom(-1,1)*cfg.burstSpeed,vy:math.visualRandom(-1,1)*cfg.burstSpeed,
+      vd:math.visualRandom(-cfg.depthSpeed,cfg.depthSpeed),age:0,life:life*math.visualRandom(cfg.lifeVariance.min,cfg.lifeVariance.max),color:math.visualPick(colors)};
   },
   stepParticle(p,dt) {p.age+=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.d+=p.vd*dt;},
-  particleScale(p) {return p.kind==='smoke'?.15+p.age*.8:p.kind==='plasma'?.27*(1-p.age/p.life):.22+.3*(1-p.age/p.life);},
-  particleOpacity(p) {return Math.max(0,1-p.age/p.life)*(p.kind==='smoke'?.38:.95);},
-  trail(s) {
-    const result=[];
-    for(const x of [-1.45,1.45])for(const kind of ['smoke','plasma'])
-      result.push(this.particleAt(kind,s.player.x+x*renderMath.flightScale,s.player.y-.23*renderMath.flightScale,s.distance-3.15*renderMath.flightScale));
-    return result;
-  },
+  particleScale(p) {return this.particle.initialSize+this.particle.tailSize*(1-p.age/p.life);},
+  particleOpacity(p) {return Math.max(0,1-p.age/p.life);},
   explode(e,count=60) {return Array.from({length:count},()=>this.particleAt('explosion',e.x,e.y,e.d));},
   fireworks(s) {return [-9,9].flatMap(x=>Array.from({length:36},()=>this.particleAt('firework',x,2,s.distance+4)));},
   titleTime(t,dt) { return t+dt; },
@@ -560,6 +560,7 @@ const gfx = ({
 });
 
 const ui = ({
+  developerSettings:{visible:false},
   hud:{
     speedDigits:3,percentScale:100,debugGapPx:12,
     heat:{max:100,warningPercent:60,criticalPercent:90,arcDegrees:100,svgSize:100,svgRadius:44,
@@ -604,10 +605,10 @@ const ui = ({
 // Unified soundtrack catalog. Scores and synthesis are data; arrangers emit common audio events.
 const music = ({
   startOffset:.035,lateOffset:.015,retireBusMs:6000,filterQ:.7,initialStep:0,oneShotBpm:60,immediateFade:.01,mixSmoothing:.025,
-  playback:{playlist:['game0','stardog0','game1','stardog1','game2'],
+  playback:{playlist:['game0','stardog0','game1','stardog1'],
     roles:{title:'stardogTitle',defeat:'defeat',crashing:null},pausedFallback:'playing',
     gapSeconds:.6,fadeSeconds:.35,scaleSteps:256},
-  debug:{enabled:true,key:'KeyP',resetOnModeChange:true,tempoFollowsSpeed:false},
+  debug:{enabled:false,key:'KeyP',resetOnModeChange:true,tempoFollowsSpeed:false},
   tempoScaling:{referenceSpeed:80,min:.85,max:2,growth:.5},
   pitch:{referenceFrequency:440,referenceMidi:69,semitonesPerOctave:12,octaveRatio:2},
   synthesis:{detuneSpacing:2,detuneCenter:.5,minimumFrequency:20,minimumDuration:.01,
@@ -645,20 +646,28 @@ const music = ({
     stardogPad:{family:'stardog',wave:'sawtooth',copies:3,detune:9,gain:0.06,cutoff:1250,Q:0.7,drive:2},
     stardogKick:{family:'stardog',wave:'sine',copies:1,detune:0,gain:0.65,cutoff:600,Q:0.5,drive:3},
     stardogMetal:{family:'stardog',wave:'triangle',copies:3,detune:11.5,gain:0.23,cutoff:2800,Q:3,drive:7},
+    flourishSine:{family:'stardog',wave:'sine',copies:1,detune:0,gain:.14,attack:.004,cutoff:6500,Q:.4},
+    flourishSquare:{family:'stardog',wave:'square',copies:1,detune:0,gain:.065,attack:.004,cutoff:4200,Q:.4},
   },
   tracks:{
     intro:{name:'Soft Launch',bpm:78,root:57,scale:[0,2,4,7,9],chords:[0,3,5,2,0,3,4,2],bass:[0,null,null,null,7,null,null,null,0,null,null,null,4,null,null,null],lead:[0,null,2,null,4,null,3,null,2,null,1,null,0,null,null,null],voice:'glass',pad:'pad',drums:'soft',flare:false},
-    game0:{name:'Copper Funk',bpm:112,root:48,scale:[0,2,3,5,7,9,10],chords:[0,5,3,4,0,2,5,4],bass:[0,null,0,7,null,0,10,null,0,null,5,7,null,10,7,null],lead:[7,null,9,7,null,4,null,2,4,null,7,null,9,11,null,9],voice:'pluck',pad:'pad',drums:'funk',flare:true},
+    game0:{name:'Copper Funk',bpm:110,arranger:'concat',sections:[
+      {name:'Copper Funk',root:48,scale:[0,2,3,5,7,9,10],chords:[0,5,3,4,0,2,5,4],bass:[0,null,0,7,null,0,10,null,0,null,5,7,null,10,7,null],lead:[7,null,9,7,null,4,null,2,4,null,7,null,9,11,null,9],voice:'pluck',pad:'pad',drums:'funk',flare:true},
+      {name:'Afterburner Velvet',root:46,scale:[0,2,3,5,7,8,10],chords:[0,3,6,4,5,3,1,4],bass:[0,0,null,10,7,null,5,null,0,null,12,10,null,7,5,3],lead:[9,null,7,4,null,2,0,null,2,4,null,7,9,null,11,12],voice:'lead',pad:'pad',drums:'broken',flare:true},
+    ]},
     game1:{name:'Glass Arcade',bpm:116,root:53,scale:[0,2,4,6,7,9,11],chords:[0,4,1,5,2,4,0,5],bass:[0,null,7,null,0,12,null,7,0,null,7,9,null,5,7,null],lead:[0,2,null,4,6,null,4,2,7,null,6,4,2,null,4,6],voice:'glass',pad:'brightPad',drums:'four',flare:true},
-    game2:{name:'Afterburner Velvet',bpm:108,root:46,scale:[0,2,3,5,7,8,10],chords:[0,3,6,4,5,3,1,4],bass:[0,0,null,10,7,null,5,null,0,null,12,10,null,7,5,3],lead:[9,null,7,4,null,2,0,null,2,4,null,7,9,null,11,12],voice:'lead',pad:'pad',drums:'broken',flare:true},
     game3:{name:'Solar Disco',bpm:120,root:55,scale:[0,2,4,5,7,9,11],chords:[0,5,1,4,3,5,2,4],bass:[0,null,12,7,0,null,5,7,0,null,12,10,7,null,5,7],lead:[0,null,4,7,null,9,7,4,2,null,5,9,null,11,9,5],voice:'pluck',pad:'brightPad',drums:'disco',flare:true},
     invincible:{name:'Goodboy Forever',bpm:104,root:60,scale:[0,2,4,7,9],chords:[0,3,1,4,0,2,3,4],bass:[0,null,7,null,0,null,12,7,0,null,7,null,4,null,7,12],lead:[0,2,4,null,7,9,7,null,4,2,0,null,2,4,7,9],voice:'glass',pad:'brightPad',drums:'four',flare:true},
     defeat:{name:'Drifting Home',bpm:62,root:45,scale:[0,2,3,5,7,8,10],chords:[0,5,3,4,0,3,1,4],bass:[0,null,null,null,null,null,null,null,7,null,null,null,null,null,null,null],lead:[4,null,null,null,2,null,null,null,0,null,null,null,null,null,null,null],voice:'glass',pad:'pad',drums:'sad',flare:false},
-    stardog0:{name:'Iron Drive',bpm:100,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:4,
+    stardog0:{name:'Iron Drive',bpm:100,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:32,
       roots:[0,5,8,7],bass:[0,0,7,3,0,10,7,3],melody:[12,null,15,19,12,22,19,null],
       kicks:[0,8],snares:[4,12],hats:[0,2,4,6,8,10,12,14],chords:[0,3,7],
       leadVoice:'stardogGuitar',bassVoice:'stardogBass',chordVoice:'stardogGuitar',
-      leadGain:0.16,bassGain:0.3,chordGain:0.09,leadEcho:true,bassEcho:false,chordEcho:true},
+      leadGain:0.16,bassGain:0.3,chordGain:0.09,leadEcho:true,bassEcho:false,chordEcho:true,
+      layers:[{type:'flourish',seed:'iron-drive-lead',firstStep:8,intervalSteps:32,
+        voices:['flourishSine','flourishSquare'],ascendingChance:.8,scale:[0,2,3,5,7,8,10],
+        baseMidi:60,startDegrees:[0,1,2],noteCounts:[8,10,12],spacingSteps:.5,durationSteps:.42,
+        panWidth:.35,echo:true}]},
     stardog1:{name:'Neon Pursuit',bpm:106,arranger:'sequence',mix:'direct',stepsPerMeasure:16,measures:4,
       roots:[0,7,3,10],bass:[0,7,12,7,0,10,12,3],melody:[24,19,22,null,27,24,null,22,19,15,19,22,24,null,31,27],
       kicks:[0,3,8,11],snares:[4,12],hats:[0,1,2,3,4,6,8,9,10,11,12,14],chords:[0,7,10],
@@ -697,9 +706,9 @@ const music = ({
   stepSeconds(bpm) {return this.sequence.secondsPerMinute/bpm/this.sequence.stepsPerBeat;},
   frequency(midi) {const p=this.pitch;return p.referenceFrequency*p.octaveRatio**((midi-p.referenceMidi)/p.semitonesPerOctave);},
   chordRoot(track,bar) {return track.root+track.scale[track.chords[Math.floor(bar/2)%track.chords.length]%track.scale.length];},
-  degree(track,index) {return track.scale[index%track.scale.length]+Math.floor(index/track.scale.length)*12;},
-  scaleNotes(id,step,bpm) {
-    const t=this.tracks[id], part=step%16,bar=Math.floor(step/16)%16,root=this.chordRoot(t,bar),beat=this.stepSeconds(bpm), notes=[];
+  degree(track,index) {return track.scale[index%track.scale.length]+Math.floor(index/track.scale.length)*this.pitch.semitonesPerOctave;},
+  scaleNotes(t,step,bpm) {
+    const part=step%16,bar=Math.floor(step/16)%16,root=this.chordRoot(t,bar),beat=this.stepSeconds(bpm), notes=[];
     const add=(voice,note,length,level=1,offset=0,pan=0)=>notes.push({voice,note,duration:beat*length,level,offset,pan});
     if(part===0 && bar%2===0) for(const [i,degree] of [0,2,4,6].entries())add(t.pad,root+12+this.degree(t,degree),28,1,0,(i-1.5)*.32);
     if(t.bass[part]!==null) {add('bass',root-12+t.bass[part],t.drums==='soft'||t.drums==='sad'?3:1.4,.8);add('sub',root-12+t.bass[part],1.7,.55);}
@@ -711,8 +720,8 @@ const music = ({
     } else if(t.lead[part]!==null && (t.drums!=='soft'&&t.drums!=='sad'||bar%2===0))add(t.voice,root+12+this.degree(t,t.lead[part]),1.7,.85,0,Math.sin(part*.7)*.35);
     return notes;
   },
-  scaleDrums(id,step) {
-    const t=this.tracks[id],p=step%16,bar=Math.floor(step/16)%16;if(t.drums==='sad')return p===0&&bar%2===0?['softKick']:[];
+  scaleDrums(t,step) {
+    const p=step%16,bar=Math.floor(step/16)%16;if(t.drums==='sad')return p===0&&bar%2===0?['softKick']:[];
     if(t.drums==='soft')return p===0?['softKick']:p===12?['softHat']:[];
     const out=[];
     const kick=t.drums==='four'||t.drums==='disco'?p%4===0:t.drums==='broken'?[0,3,10].includes(p):[0,6,8,11].includes(p);
@@ -733,8 +742,15 @@ for(const [id,voice] of Object.entries(music.synths)){
   music.synths[id]={...music.voiceDefaults,...music.voicePresets[family],...authored,
     releaseSeconds:authored.releaseSeconds??release??music.voiceDefaults.releaseSeconds};
 }
-for(const [id,track] of Object.entries(music.tracks))music.tracks[id]={...music.trackDefaults,
-  ...(track.arranger===undefined?{lengthSteps:music.playback.scaleSteps}:{}),...track};
+music.resolveScore = function(authored) {
+  const score={...this.trackDefaults,...authored};
+  if(score.sections){
+    score.sections=score.sections.map(section=>this.resolveScore(section));
+    score.lengthSteps=score.sections.reduce((length,section)=>length+section.lengthSteps,0);
+  }else score.lengthSteps??=score.arranger==='scale'?this.playback.scaleSteps:score.stepsPerMeasure*score.measures;
+  return score;
+};
+for(const [id,track] of Object.entries(music.tracks))music.tracks[id]=music.resolveScore(track);
 music.previewOrder=Object.keys(music.tracks);
 
 const sfx = ({
@@ -767,18 +783,26 @@ music.noiseEvent = function({duration,cutoff,gain},filterType='lowpass') {
     gain,cutoff,filterType,noiseOffsetFraction:this.synthesis.noiseOffsetFraction},cutoff,duration);
 };
 music.arrangers = {
-  scale(id,step,bpm) {
-    return [...music.scaleNotes(id,step,bpm).map(note=>music.event(note.voice,music.frequency(note.note),note.duration,
+  concat(t,step,bpm) {
+    let localStep=music.wrapIndex(step,t.lengthSteps);
+    for(const section of t.sections){
+      if(localStep<section.lengthSteps)return music.arrange(section,localStep,bpm);
+      localStep-=section.lengthSteps;
+    }
+    return [];
+  },
+  scale(t,step,bpm) {
+    return [...music.scaleNotes(t,step,bpm).map(note=>music.event(note.voice,music.frequency(note.note),note.duration,
       {gain:music.synths[note.voice].gain*note.level,offset:note.offset,pan:note.pan})),
-      ...music.scaleDrums(id,step).map(id=>{
+      ...music.scaleDrums(t,step).map(id=>{
         const d=sfx.drums[id];
         const voice={...music.voiceDefaults,source:d.noise?'noise':'tone',wave:'sine',copies:1,detune:0,
           gain:d.gain,attack:sfx.gain.peakDelay,holdFraction:0,cutoff:d.frequency,filterType:d.filter||'lowpass'};
         return music.event(voice,d.frequency,d.duration,{endFrequency:d.to??d.frequency});
       })];
   },
-  sequence(id,step,bpm) {
-    const t=music.tracks[id],c=music.sequence,pace=music.stepSeconds(bpm),events=[];
+  sequence(t,step,bpm) {
+    const c=music.sequence,pace=music.stepSeconds(bpm),events=[];
     step%=t.stepsPerMeasure*t.measures;
     const beat=step%t.stepsPerMeasure,root=t.roots[Math.floor(step/t.stepsPerMeasure)%t.roots.length];
     const add=(voice,note,duration,gain,echo)=>events.push(music.event(voice,music.frequency(note),duration,{gain,echo}));
@@ -791,8 +815,8 @@ music.arrangers = {
     if(t.hats.includes(beat))events.push(music.noiseEvent({duration:c.hatDuration,cutoff:c.hatCutoff,gain:c.hatGain},'highpass'));
     return events;
   },
-  legacy(id,step,bpm) {
-    const t=music.tracks[id],c=music.legacy,pace=music.stepSeconds(bpm),events=[];
+  legacy(t,step,bpm) {
+    const c=music.legacy,pace=music.stepSeconds(bpm),events=[];
     step%=t.stepsPerMeasure*t.measures;
     const measure=Math.floor(step/t.stepsPerMeasure),part=step%t.stepsPerMeasure;
     const root=c.roots[measure%c.roots.length],hz=music.frequency(c.bassMidi+root+c.scale[c.bass[step%c.bass.length]]);
@@ -820,9 +844,9 @@ music.arrangers = {
     if(t.slow&&step%c.padEvery===0)add('stardogPad',hz*c.pad.octaves,pace*c.pad.duration,{gain:c.pad.gain,echo:true});
     return events;
   },
-  fanfare(id,step) {
+  fanfare(t,step) {
     if(step!==music.initialStep)return [];
-    const t=music.tracks[id],events=[];
+    const events=[];
     for(const [index,interval] of t.intervals.entries())events.push(music.event(t.leadVoice,
       t.baseFrequency*music.pitch.octaveRatio**(interval/music.pitch.semitonesPerOctave),t.duration,{offset:index*t.noteSpacing,gain:t.gain,echo:true}));
     for(const interval of t.chords)events.push(music.event(t.chordVoice,
@@ -830,12 +854,37 @@ music.arrangers = {
     return events;
   },
 };
-music.events = function(id,step,bpm) {return this.arrangers[this.tracks[id].arranger](id,step,bpm);};
+// Layers decorate any score format. Each phrase has its own random stream, independent
+// of gameplay and scheduling order; later preview loops generate new variations.
+music.layers = {
+  flourish(t,layer,step,bpm) {
+    if(step<layer.firstStep||(step-layer.firstStep)%layer.intervalSteps!==0)return [];
+    const phrase=Math.floor((step-layer.firstStep)/layer.intervalSteps),rng={value:0,next:random.next};
+    random.seed.call(rng,layer.seed,phrase);
+    const pick=values=>values[Math.floor(rng.next()*values.length)];
+    const ascending=rng.next()<layer.ascendingChance,voice=pick(layer.voices),count=pick(layer.noteCounts);
+    const start=pick(layer.startDegrees),pace=music.stepSeconds(bpm);
+    const root=t.roots[Math.floor(step/t.stepsPerMeasure)%t.roots.length];
+    const pan=(rng.next()*2-1)*layer.panWidth,events=[];
+    for(let index=0;index<count;index++){
+      const degree=start+(ascending?index:count-1-index);
+      const note=layer.baseMidi+root+music.degree(layer,degree);
+      events.push(music.event(voice,music.frequency(note),pace*layer.durationSteps,
+        {offset:index*pace*layer.spacingSteps,pan,echo:layer.echo}));
+    }
+    return events;
+  },
+};
+music.arrange = function(score,step,bpm) {
+  return [...this.arrangers[score.arranger](score,step,bpm),
+    ...(score.layers||[]).flatMap(layer=>this.layers[layer.type](score,layer,step,bpm))];
+};
+music.events = function(id,step,bpm) {return this.arrange(this.tracks[id],step,bpm);};
 
 const renderMath = ({
   starOpacity:.48,
   hemisphere:[0xe5f4f0,0x233341],keyColor:0xffdfc3,rimColor:0x75e5e8,roughness:.65,metalness:.2,emissive:.22,
-  engineOpacity:.85,shieldColor:0xffda7b,shieldOpacity:.35,shieldRadius:1,shieldDetail:1,starColor:0xd4e9e5,starSize:.8,
+  shieldColor:0xffda7b,shieldOpacity:.35,shieldRadius:1,shieldDetail:1,starColor:0xd4e9e5,starSize:.8,
   particleOpacity:.85,barrierEdgeColor:0xffdfa8,pickupHaloOpacity:.5,pickupHaloSize:1.15,bulletColor:0xa7fff0,hostileColor:0xff6a48,
   emissiveIntensity:.8,geometrySegments:0,
   barrierSize(e) {return [e.rx*2,e.ry*2,e.rz*2];},
@@ -879,8 +928,16 @@ const speedEffects = {
 
 // Route geometry and simulation share these dimensions and the same seeded plan.
 const route = {
-  openShare:.6,tunnelWeight:1,stationWeight:1,cruiserWeight:1,
-  tunnelLength:720,stationLength:420,cruiserLength:1100,
+  openShare:.6,tunnelWeight:1,stationWeight:.5,curvedStationWeight:.5,cruiserWeight:1,trafficWeight:1,tropesWeight:1,
+  tunnelLength:720,stationLength:420,curvedStationLength:420,cruiserLength:1100,
+  motifs:{
+    tunnel:{family:'tunnel',weight:'tunnelWeight',length:'tunnelLength',tiles:true},
+    station:{family:'station',weight:'stationWeight',length:'stationLength',tiles:true,path:'straight'},
+    curvedStation:{family:'station',weight:'curvedStationWeight',length:'curvedStationLength',tiles:true},
+    cruiser:{family:'cruiser',weight:'cruiserWeight',length:'cruiserLength',tiles:true},
+    traffic:{family:'traffic',weight:'trafficWeight',lengthRule:'traffic',interactive:true},
+    tropes:{family:'tropes',weight:'tropesWeight',lengthRule:'tropes',interactive:true,enabled:false},
+  },
   tileDistance:20,behindDistance:55,contactMargin:.3,contactEpsilon:.01,
   tunnel:{radius:9.5,sides:24,windowGroupTiles:7,windowTiles:3,windowSides:[0,1,5,6,11,12,17,18],
     ribEveryTiles:4,ribWidth:.22},
@@ -934,6 +991,105 @@ const route = {
     return (hash>>>0)/this.deterministic.range;
   },
 };
+
+// Interactive motifs use the same route coordinates; simulation owns their mutable state.
+const traffic = {
+  overlapDistance:{min:100,max:400},approachDistance:650,offPathDistance:900,
+  density:1,rowSpacing:27,visibleAhead:600,behindDistance:90,simulationPadding:100,
+  maxVehicles:256,maxFragments:120,maxVisualFragments:180,
+  lanes:[[-9,-4],[-3,-4],[3,-4],[9,-4],[-9,4],[-3,4],[3,4],[9,4]],
+  speed:{base:55,laneStep:9,difficultyGrowth:30,ceiling:180},
+  oncoming:{initial:.2,maximum:.8,growth:1.1},
+  pose:{sampleDistance:1},
+  steering:{weave:.5,frequency:.7,impulse:12,spin:1.8,decay:.55,contactSeconds:1.2,shotImpulse:2},
+  debris:{damageFraction:.15,count:9,lifeSeconds:4,speed:15,spin:3,radius:{min:.22,max:.65}},
+  horn:{nearDistance:1.8,cooldownSeconds:3,globalIntervalSeconds:.35,maxBeeps:3,beepSeconds:.16,gapSeconds:.11,
+    gain:.22,frequencies:{truck:[105,139],racer:[410,530],car:[240,305],motorcycle:[560,710]}},
+  models:{
+    truck:{bounds:[1.7,1.3,4.6],engine:'freight',nozzles:[[-1,-.35,4.7],[1,-.35,4.7]],colors:[0xc78042,0x617681,0xcac5af]},
+    racer:{bounds:[1.3,.65,3.2],engine:'racer',nozzles:[[-.65,0,3.2],[.65,0,3.2]],colors:[0xe85855,0x4de0cc,0xe8c547]},
+    car:{bounds:[1.35,.95,2.5],engine:'commuter',nozzles:[[-.7,-.3,2.5],[.7,-.3,2.5]],colors:[0x86bcee,0xb78bd5,0xe6d7bd]},
+    motorcycle:{bounds:[.6,.9,2.3],engine:'bike',nozzles:[[0,-.25,2.3]],colors:[0xffbd55,0xf4709a,0xa5d76a]},
+  },
+  oncomingChance(distance){return math.mix(this.oncoming.initial,this.oncoming.maximum,1-Math.exp(-difficulty.progress(distance)*this.oncoming.growth));},
+};
+const tropes = {
+  kinds:['glass','cart','clothes','boxes'],stageSpacing:650,padding:180,reactionSeconds:1.2,speedAllowance:3.5,
+  damageFraction:.1,walkway:{y:-10,width:35,depth:8,thickness:.16,edgeWidth:.09,color:0x46c6c5},
+  crossing:{amplitude:1.1,frequency:.35,cartAmplitude:15,cartFrequency:.38},
+  glass:{halfWidth:10,halfHeight:7,depth:.06,shards:72,shardLife:2.6,shardSpeed:16,spacemanMaxPolygons:50},
+  cart:{centerY:-7.1,halfWidth:2.5,halfHeight:2.85,halfDepth:1.6},
+  fruit:{count:58,life:3,speed:12,gravity:8,radius:.28},
+  clothes:{speedMultiplier:.45,duration:{min:3,max:5},recoverySeconds:.65,colors:[0xd76657,0x72b4d0,0xdcc69a,0x84b085],
+    sway:.16,frequency:1.4,columns:7,spacing:3.4,lineY:7,height:4.6,width:2.3,depth:.2},
+  boxes:{size:3,columns:8,rows:6,fragmentCount:12,life:2.5},
+  brands:[
+    {id:'dome-depot',name:'DOME DEPOT',tagline:'Do it yourself. In a vacuum.',color:0xd5763a,texture:'./assets/motifs/dome-depot.svg'},
+    {id:'zero-g-supply',name:'ZERO-G SUPPLY',tagline:'Gravity not included.',color:0x3269ad,texture:'./assets/motifs/zero-g-supply.svg'},
+  ],
+  sounds:{
+    glass:{sub:850,to:170,duration:.4,subGain:.045,noiseCutoff:8500,noiseGain:.12},
+    cart:{sub:110,to:45,duration:.32,subGain:.12,noiseCutoff:1400,noiseGain:.08},
+    box:{sub:90,to:35,duration:.24,subGain:.1,noiseCutoff:700,noiseGain:.06},
+    cloth:{from:340,to:120,duration:.2,gain:.08,wave:'triangle'},
+  },
+  complaint:{from:140,to:85,duration:.28,gain:.18,wave:'sawtooth',beeps:3,gapSeconds:.19},
+  spacing(distance){return Math.max(this.stageSpacing,race.cruiseSpeed(distance)*this.speedAllowance*this.reactionSeconds);},
+  length(distance){
+    const maximumSpacing=Math.max(this.stageSpacing,race.maxSpeed*this.speedAllowance*this.reactionSeconds);
+    const latestEnd=distance+(this.kinds.length*maximumSpacing+this.padding*2)/(1-route.openShare);
+    return this.kinds.length*this.spacing(latestEnd)+this.padding*2;
+  },
+};
+// Saved interactive state is bounded and validated before a checkpoint can restore it.
+const motifState = {
+  version:1,maxStreams:16,maxStages:12,maxRetired:1024,fragmentFadeSeconds:.5,
+  valid(value){
+    if(value==null)return true;
+    if(value.version!==this.version||typeof value.seed!=='string'||!Number.isFinite(value.serial)||value.serial<0||!Number.isFinite(value.hornCooldown))return false;
+    const collections={streams:this.maxStreams,stages:this.maxStages,vehicles:traffic.maxVehicles,
+      fragments:traffic.maxFragments+traffic.maxVisualFragments,retired:this.maxRetired};
+    if(!Object.entries(collections).every(([key,limit])=>Array.isArray(value[key])&&value[key].length<=limit))return false;
+    const finite=(item,keys)=>item&&keys.every(key=>Number.isFinite(item[key]));
+    const body=item=>item&&typeof item.id==='string'&&finite(item,['x','y','d','previousX','previousY','previousD','rx','ry','rz'])
+      &&item.rx>0&&item.ry>0&&item.rz>0;
+    const segment=item=>item&&typeof item.id==='string'&&finite(item,['start','end','mergeStart','mergeEnd','direction','sideSign'])
+      &&item.end>item.start&&Math.abs(item.direction)===1&&Math.abs(item.sideSign)===1;
+    if(!value.streams.every(item=>finite(item,['age'])&&segment(item.segment)))return false;
+    if(!value.vehicles.every(item=>body(item)&&Object.hasOwn(traffic.models,item.kind)&&Object.hasOwn(exhaust.profiles,item.engine)&&segment(item.segment)
+      &&finite(item,['roadD','lane','color','speed','age','offsetX','offsetY','vx','vy','spin','contactCooldown','hornCooldown','phase'])
+      &&(!item.heading||Array.isArray(item.heading)&&item.heading.length===3&&item.heading.every(Number.isFinite))
+      &&Number.isInteger(item.lane)&&item.lane>=0&&item.lane<traffic.lanes.length))return false;
+    if(!value.stages.every(item=>typeof item.id==='string'&&tropes.kinds.includes(item.kind)&&finite(item,['d','age','phase'])
+      &&Array.isArray(item.props)&&item.props.length<=tropes.boxes.columns*tropes.boxes.rows
+      &&item.props.every(prop=>body(prop)&&['glass','cart','cloth','box'].includes(prop.kind)
+        &&(prop.kind!=='cloth'||['shirt','pants'].includes(prop.garment)&&Number.isFinite(prop.color))
+        &&(prop.kind!=='box'||Number.isInteger(prop.brand)&&prop.brand>=0&&prop.brand<tropes.brands.length))))return false;
+    if(!value.fragments.every(item=>body(item)&&['glass','fruit','cardboard','wreckage'].includes(item.kind)
+      &&finite(item,['baseRadius','vx','vy','speed','age','life','gravity','color','brand'])&&item.life>0
+      &&Array.isArray(item.rotation)&&item.rotation.length===3&&item.rotation.every(Number.isFinite)
+      &&Array.isArray(item.spin)&&item.spin.length===3&&item.spin.every(Number.isFinite)))return false;
+    return value.retired.every(item=>item&&typeof item.id==='string'&&finite(item,['d','speed','age']));
+  },
+  validDrag(drag){const limits=tuning.fields.find(field=>field.path==='tropes.clothes.duration');return drag==null||['shirt','pants'].includes(drag.kind)&&Number.isFinite(drag.color)
+    &&Number.isFinite(drag.remaining)&&Number.isFinite(drag.duration)&&drag.remaining>=0&&drag.remaining<=drag.duration
+    &&drag.duration<=limits.max&&drag.duration>=limits.min
+    &&Number.isFinite(drag.multiplier)&&drag.multiplier>0&&drag.multiplier<=1;},
+};
+const exhaust = {
+  capacity:{smoke:1700,plasma:2400},farDistance:240,trafficEmitters:40,
+  profiles:{
+    player:{mode:'both',color:0xffab55,rate:100,plasmaLife:.3,smokeLife:1.35,size:.5,jetSpeed:17,smokeOpacity:.3},
+    freight:{mode:'both',color:0xffa24b,rate:35,plasmaLife:.48,smokeLife:2,size:.95,jetSpeed:20,smokeOpacity:.45},
+    racer:{mode:'plasma',color:0x65dfff,rate:70,plasmaLife:.38,smokeLife:1,size:.42,jetSpeed:27,smokeOpacity:0},
+    commuter:{mode:'both',color:0xbd9aff,rate:35,plasmaLife:.25,smokeLife:1.1,size:.4,jetSpeed:14,smokeOpacity:.22},
+    bike:{mode:'plasma',color:0xa5f6c0,rate:45,plasmaLife:.32,smokeLife:1,size:.3,jetSpeed:23,smokeOpacity:0},
+    smoke:{mode:'smoke',color:0xffaa65,rate:35,plasmaLife:.3,smokeLife:1.8,size:.65,jetSpeed:15,smokeOpacity:.4},
+  },
+  smokeColor:0x93a5b2,spread:.6,growth:1.7,boostScale:1.55,velocityInheritance:.22,
+  shader:{noiseScale:4.5,noiseSpeed:.8,edgeStart:.22,edgeEnd:.5,hotIntensity:3.2},
+};
+
 const speedRings = {
   seriesDistance:1200,seriesGap:180,startOffset:220,minCount:3,maxCount:7,spacing:90,
   radius:2.8,tubeRadius:.16,sides:6,tubeSegments:6,offsetX:6.1,offsetY:3.2,steerStepX:2.8,steerStepY:1.5,
@@ -1218,23 +1374,33 @@ const scenery = {
     };
   },
   clusterOpacity(distanceAhead) {return math.clamp((this.clusterPresentation.spawnAheadDistance-distanceAhead)/this.clusterPresentation.fadeDistance,0,1);},
-  clusterRetired(pose,s) {
-    const position=tunnel.world(pose.position.x,pose.position.y,pose.position.distance,s.distance);
+  clusterRetired(pose,s,path=tunnel) {
+    const position=path.world(pose.position.x,pose.position.y,pose.position.distance,s.distance);
     const camera=gfx.flightCamera(s);
     const backward=camera.position.map((value,axis)=>value-camera.look[axis]);
     const length=Math.hypot(...backward);
     const behind=position.reduce((sum,value,axis)=>sum+(value-camera.position[axis])*backward[axis]/length,0);
     return behind-pose.boundsRadius>this.clusterPresentation.retireBehindCameraDistance;
   },
-  clusterClearsPath(pose) {return this.clearsPath({x:pose.position.x,y:pose.position.y,d:pose.position.distance,radius:pose.boundsRadius});},
-  clearsPath(p) {
+  clusterClearsPath(pose,path=tunnel) {return this.clearsPath({x:pose.position.x,y:pose.position.y,d:pose.position.distance,radius:pose.boundsRadius},path);},
+  clearsPath(p,routePath=tunnel) {
     if(!p)return false;
-    const center=tunnel.center(p.d),minimum=this.corridorRadius+this.clearance+p.radius;
+    const center=routePath.center(p.d),minimum=this.corridorRadius+this.clearance+p.radius;
     for(let offset=-p.radius;offset<=p.radius;offset+=this.layout.clearanceStep){
-      const path=tunnel.center(p.d+offset);
+      const path=routePath.center(p.d+offset);
       if(Math.hypot(center.x+p.x-path.x,center.y+p.y-path.y)<minimum)return false;
     }
     return true;
+  },
+};
+
+// Shared channel policy for playback, saved preferences and Options controls.
+const audio = {
+  preferencesKey:'starhound.audio.v1',volume:{min:0,max:1},
+  channels:{
+    music:{defaultVolume:1,adjustable:true},
+    effects:{defaultVolume:1,adjustable:true},
+    voice:{defaultVolume:0,adjustable:false},
   },
 };
 
@@ -1255,7 +1421,7 @@ const voices = {
 // Mutable numeric overrides; authored rules remain centralized above.
 const tuning = {
   seed:'GOODBOY',defaultSeed:'GOODBOY',seedLimit:80,
-  persistence:{key:'starhound.developer-settings.v1',version:6},saved:null,
+  persistence:{key:'starhound.developer-settings.v1',version:7},saved:null,
   checkpointGroups:['difficulty','race','encounters','weapon','pickups','gfx'],
   fields:[
     {path:'race.waveLength',label:'Wave distance',min:500,max:5000,step:10},
@@ -1306,11 +1472,21 @@ const tuning = {
     {path:'scenery.asteroidClusters.clusterVelocity',label:'Cluster velocity / units per second',min:0,max:40,step:.1,type:'range'},
     {path:'route.openShare',label:'Open space share (0–1)',min:.1,max:.95,step:.05,section:'Route and speed rings'},
     {path:'route.tunnelWeight',label:'Tunnel frequency weight',min:0,max:10,step:.1},
-    {path:'route.stationWeight',label:'Station frequency weight',min:0,max:10,step:.1},
+    {path:'route.stationWeight',label:'Space station frequency weight',min:0,max:10,step:.05},
+    {path:'route.curvedStationWeight',label:'Curved space station frequency weight',min:0,max:10,step:.05},
+    {path:'route.trafficWeight',label:'Traffic frequency weight',min:0,max:10,step:.1},
+    {path:'route.tropesWeight',label:'Movie tropes frequency weight',min:0,max:10,step:.1},
+    {path:'route.curvedStationLength',label:'Curved space station length / distance',min:360,max:1600,step:20},
     {path:'route.cruiserWeight',label:'Cruiser frequency weight',min:0,max:10,step:.1},
     {path:'route.tunnelLength',label:'Tunnel length / distance',min:240,max:3000,step:20},
-    {path:'route.stationLength',label:'Station length / distance',min:360,max:1600,step:20},
+    {path:'route.stationLength',label:'Space station length / distance',min:360,max:1600,step:20},
     {path:'route.cruiserLength',label:'Cruiser length / distance',min:400,max:4000,step:20},
+    {path:'traffic.overlapDistance',label:'Traffic overlap / distance',min:100,max:400,step:10,type:'range',section:'Traffic'},
+    {path:'traffic.density',label:'Traffic density / multiplier',min:.5,max:2,step:.1},
+    {path:'traffic.oncoming.initial',label:'Starting oncoming probability (0–1)',min:0,max:1,step:.05},
+    {path:'traffic.oncoming.maximum',label:'Maximum oncoming probability (0–1)',min:0,max:1,step:.05},
+    {path:'tropes.clothes.speedMultiplier',label:'Clothing speed multiplier',min:.2,max:.8,step:.05,section:'Movie tropes'},
+    {path:'tropes.clothes.duration',label:'Clothing duration / seconds',min:3,max:5,step:.1,type:'range'},
     {path:'route.station.openingHalfWidth',label:'Minimum opening half-width / units',min:1,max:8,step:.1,section:'Station walls and openings'},
     {path:'route.station.openingHalfHeight',label:'Minimum opening half-height / units',min:1,max:6,step:.1},
     {path:'route.station.openings.startScale',label:'Starting opening size / multiplier',min:1,max:2.5,step:.05},
@@ -1325,7 +1501,7 @@ const tuning = {
     {path:'speedRings.bonusCap',label:'Maximum ring speed bonus (0–1)',min:.1,max:1.5,step:.05},
     {path:'speedRings.decayPerSecond',label:'Ring bonus decay / second',min:.005,max:.15,step:.005},
   ],
-  objects:{difficulty,race,encounters,weapon,pickups,gfx,renderMath,music,route,speedRings,scenery},
+  objects:{difficulty,race,encounters,weapon,pickups,gfx,renderMath,music,route,speedRings,scenery,traffic,tropes},
   binding(path) {
     const parts=path.split('.'),key=parts.pop();
     return {object:parts.reduce((object,part)=>object[part],this.objects),key};
@@ -1335,6 +1511,7 @@ const tuning = {
     return [path,type==='range'?{...value}:value];
   }));},
   constraints:[
+    {lower:'traffic.oncoming.initial',upper:'traffic.oncoming.maximum',message:'Maximum oncoming probability must be at least the starting probability.'},
     {lower:'race.startSpeed',upper:'race.maxSpeed',message:'Maximum cruise speed must be at least the starting speed.'},
     {lower:'encounters.minInterval',upper:'encounters.startInterval',message:'Minimum obstacle spacing cannot exceed starting obstacle spacing.'},
     {lower:'encounters.startCount',upper:'encounters.maxCount',message:'Maximum obstacle count must be at least the starting count.'},
@@ -1349,7 +1526,7 @@ const tuning = {
         return `Enter a valid value for ${label}.`;
     }
     for(const {lower,upper,message} of this.constraints)if(values[lower]>values[upper])return message;
-    if(values['route.tunnelWeight']+values['route.stationWeight']+values['route.cruiserWeight']<=0)return 'Give at least one motif a frequency weight above zero.';
+    if(Object.values(route.motifs).reduce((sum,motif)=>sum+values[`route.${motif.weight}`],0)<=0)return 'Give at least one motif a frequency weight above zero.';
     return '';
   },
   valid(values) {return !this.validationError(values);},
@@ -1386,10 +1563,11 @@ const tuning = {
     if(version===legacyTuning.settingsVersion)return this.migrateValues(values);
     const addedGroups=this.schemaUpgrades[version];
     if(!addedGroups)return version===this.persistence.version&&this.valid(values)?values:null;
-    if(!values||!this.fields.filter(({path})=>!addedGroups.includes(path.split('.')[0])).every(({path})=>Number.isFinite(values[path])))return null;
+    if(!values||!this.fields.filter(({path})=>!addedGroups.includes(path.split('.')[0])).every(({path,type})=>type==='range'
+      ?Number.isFinite(values[path]?.min)&&Number.isFinite(values[path]?.max):Number.isFinite(values[path])))return null;
     const upgraded={...this.defaults,...this.projectValues(values)};return this.valid(upgraded)?upgraded:null;
   },
-  schemaUpgrades:{2:['scenery','route'],3:['scenery','route'],4:['scenery','route'],5:['scenery','route']},
+  schemaUpgrades:{2:['scenery','route','traffic','tropes'],3:['scenery','route','traffic','tropes'],4:['scenery','route','traffic','tropes'],5:['scenery','route','traffic','tropes'],6:['route','traffic','tropes']},
   legacyFieldNames:{
     'scenery.asteroidClusters.frequency':'scenery.clusters.frequency',
     'scenery.asteroidClusters.quantity':'scenery.clusters.count',
@@ -1400,7 +1578,12 @@ const tuning = {
     'scenery.asteroidClusters.clusterVelocity':'scenery.clusters.groupVelocity',
   },
   projectValues(values) {
-    return Object.fromEntries(this.fields.map(({path})=>[path,values[path]??values[this.legacyFieldNames[path]]]).filter(([,value])=>value!==undefined));
+    const projected=Object.fromEntries(this.fields.map(({path})=>[path,values[path]??values[this.legacyFieldNames[path]]]).filter(([,value])=>value!==undefined));
+    if(values['route.curvedStationWeight']===undefined&&Number.isFinite(values['route.stationWeight'])){
+      projected['route.stationWeight']=values['route.stationWeight']/2;projected['route.curvedStationWeight']=values['route.stationWeight']/2;
+      projected['route.curvedStationLength']=values['route.stationLength']??this.defaults['route.stationLength'];
+    }
+    return projected;
   },
   load() {
     try {
@@ -1419,11 +1602,11 @@ const tuning = {
     this.saved={version:this.persistence.version,values:this.values(),seed:this.seed};
     try{global.localStorage.setItem(this.persistence.key,JSON.stringify(this.saved));return true;}catch{return false;}
   },
-  exportSource() {return '// STARHOUND complete classic settings. Paste over js/settings.js.\n('+configure.toString()+')(window, '+JSON.stringify({...this.values(),seed:this.seed},null,2)+');\n';},
+  exportSource() {return `const SHIP_MOVEMENT_Y = ${tunnel.bounds.halfHeight};\nconst SHIP_MOVEMENT_X = ${tunnel.bounds.halfWidth};\n`+'// STARHOUND complete classic settings. Paste over js/settings.js.\n('+configure.toString()+')(window, '+JSON.stringify({...this.values(),seed:this.seed},null,2)+');\n';},
 };
 tuning.apply(overrides);if(typeof overrides.seed==='string')tuning.seed=overrides.seed.slice(0,80);
 tuning.defaults=Object.freeze(Object.fromEntries(Object.entries(tuning.values()).map(([path,value])=>[path,typeof value==='object'?Object.freeze(value):value])));tuning.defaultSeed=tuning.seed;tuning.load();
-namespace.settings = Object.freeze({math,random,tunnel,difficulty,race,hull,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,music,sfx,voices,renderMath,speedEffects,scenery,route,speedRings,propulsion,crash,tuning});
+namespace.settings = Object.freeze({math,random,tunnel,difficulty,race,hull,checkpoint,flight,weapon,encounters,pickups,assets,gfx,ui,audio,music,sfx,voices,renderMath,speedEffects,scenery,route,speedRings,propulsion,crash,tuning,traffic,tropes,exhaust,motifState});
 })(window, {
   "race.waveLength": 2200,
   "race.startSpeed": 75,
@@ -1462,7 +1645,8 @@ namespace.settings = Object.freeze({math,random,tunnel,difficulty,race,hull,chec
   "gfx.fogDensity": 0.0022,
   "route.openShare": 0.6,
   "route.tunnelWeight": 1,
-  "route.stationWeight": 10,
+  "route.stationWeight": 5,
+  "route.curvedStationWeight": 5,
   "route.cruiserWeight": 1,
   "route.tunnelLength": 720,
   "route.stationLength": 420,

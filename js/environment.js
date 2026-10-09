@@ -99,18 +99,18 @@ class FlightEnvironment {
       this.clusterSpawnIndex=index;
       const spawnDistance=s.distance+scenery.clusterPresentation.spawnAheadDistance;
       const cluster=scenery.asteroidCluster(index,spawnDistance,s.seed);
-      if(cluster&&this.plan.at(spawnDistance).kind==='open'&&scenery.clusterClearsPath(scenery.asteroidClusterPose(cluster,0)))
+      if(cluster&&this.plan.at(spawnDistance).kind==='open'&&scenery.clusterClearsPath(scenery.asteroidClusterPose(cluster,0),this.plan))
         this.asteroidClusters.set(index,this.makeAsteroidCluster(cluster,s));
     }
     for(const [id,group] of this.asteroidClusters){
       const cluster=group.userData.asteroidCluster;
       const age=Math.max(0,s.elapsed-group.userData.startedAt);
       const pose=scenery.asteroidClusterPose(cluster,age);
-      if(scenery.clusterRetired(pose,s)){
+      if(scenery.clusterRetired(pose,s,this.plan)){
         this.remove(group);this.asteroidClusters.delete(id);continue;
       }
       const {x,y,distance}=pose.position;
-      group.position.fromArray(tunnel.world(x,y,distance,s.distance));
+      group.position.fromArray(this.plan.world(x,y,distance,s.distance));
       group.rotation.fromArray(pose.rotation);
       group.userData.material.opacity=scenery.clusterOpacity(pose.position.distance-s.distance);
       pose.asteroids.forEach((asteroid,i)=>{
@@ -142,7 +142,7 @@ class FlightEnvironment {
   curvedSkin(group,profile,first,last,origin,cutoutSides=[],material='wall'){
     const vertices=[];
     const local=(point,d)=>{
-      const center=tunnel.center(d),base=tunnel.center(origin);
+      const center=this.plan.center(d),base=this.plan.center(origin);
       return [point[0]+center.x-base.x,point[1]+center.y-base.y,origin-d];
     };
     for(let side=0;side<profile.length;side++){
@@ -170,11 +170,11 @@ class FlightEnvironment {
         this.curvedSkin(group,ribProfile,first,Math.min(last,first+c.ribWidth*2),d,windows,'rib');
       }
     }
-    if(segment.kind==='station'){
+    if(segment.family==='station'){
       const c=route.station;
       this.curvedSkin(group,[[c.halfWidth,c.halfHeight],[-c.halfWidth,c.halfHeight],[-c.halfWidth,-c.halfHeight],[c.halfWidth,-c.halfHeight]],first,last,d);
       for(const x of [-c.halfWidth,c.halfWidth])for(const y of [-c.halfHeight,c.halfHeight])
-        this.part(group,'box','light',[x,y,0],[c.lightWidth,c.lightWidth,length]);
+        this.curvedSkin(group,[[x-c.lightWidth,y-c.lightWidth],[x+c.lightWidth,y-c.lightWidth],[x+c.lightWidth,y+c.lightWidth],[x-c.lightWidth,y+c.lightWidth]],first,last,d,[],'light');
       for(const y of [-c.halfHeight,c.halfHeight])this.part(group,'box','rib',[0,y,0],[c.halfWidth*2,c.frameWidth,c.frameWidth]);
       for(const x of [-c.halfWidth+c.panelInset,c.halfWidth-c.panelInset]){
         this.part(group,'box','rib',[x,0,0],[c.panelThickness,c.panelHeight,Math.min(c.panelDepth,length)]);
@@ -192,7 +192,7 @@ class FlightEnvironment {
       if(index>=tileCount-c.tailTiles)for(const x of c.engineXs)this.part(group,'cruiser','engine',[x,0,c.engineZ],c.engineScale);
       group.userData.x=segment.side==='left'?-c.offsetX:segment.side==='right'?c.offsetX:0;
       group.userData.y=segment.side==='bottom'?c.offsetY:0;
-      const a=tunnel.center(first),b=tunnel.center(last);
+      const a=this.plan.center(first),b=this.plan.center(last);
       group.rotation.y=-Math.atan2(b.x-a.x,length);group.rotation.x=Math.atan2(b.y-a.y,length);
     }
     this.scene.add(group);return group;
@@ -239,7 +239,7 @@ class FlightEnvironment {
     const first=Math.max(0,s.distance-route.behindDistance),last=s.distance+tunnel.depth,wanted=new Set();
     const keep=(id,make)=>{wanted.add(id);if(!this.motifs.has(id))this.motifs.set(id,make());};
     for(const segment of this.plan.between(first,last)){
-      if(segment.kind==='open')continue;
+      if(!segment.tiles)continue;
       const from=Math.max(0,Math.floor((first-segment.start)/route.tileDistance)),to=Math.ceil((Math.min(last,segment.end)-segment.start)/route.tileDistance);
       for(let i=from;i<to;i++){
         const a=segment.start+i*route.tileDistance,b=Math.min(segment.end,a+route.tileDistance);
@@ -253,7 +253,7 @@ class FlightEnvironment {
     }
     for(const [id,group] of this.motifs){
       if(!wanted.has(id)){this.remove(group);this.motifs.delete(id);continue;}
-      group.position.fromArray(tunnel.world(group.userData.x||0,group.userData.y||0,group.userData.d,s.distance));
+      group.position.fromArray(this.plan.world(group.userData.x||0,group.userData.y||0,group.userData.d,s.distance));
     }
   }
   updateRings(s){
@@ -262,7 +262,7 @@ class FlightEnvironment {
       wanted.add(ring.id);
       let group=this.rings.get(ring.id);
       if(!group){group=new THREE.Mesh(this.geometries.ring,this.ringMaterials.ready);this.scene.add(group);this.rings.set(ring.id,group);}
-      group.material=this.ringMaterials[ring.result];group.position.fromArray(tunnel.world(ring.x,ring.y,ring.d,s.distance));
+      group.material=this.ringMaterials[ring.result];group.position.fromArray(this.plan.world(ring.x,ring.y,ring.d,s.distance));
     }
     for(const [id,group] of this.rings)if(!wanted.has(id)){this.remove(group);this.rings.delete(id);}
   }
@@ -283,17 +283,17 @@ class FlightEnvironment {
     for(let index=first;index<=last;index++){
       if(!this.objects.has(index)){
         const placement=scenery.placement(index,s.seed);
-        if(scenery.clearsPath(placement))this.objects.set(index,this.makeObject(placement));
+        if(scenery.clearsPath(placement,this.plan))this.objects.set(index,this.makeObject(placement));
       }
       const group=this.objects.get(index);
-      if(group){const p=group.userData.placement;group.position.fromArray(tunnel.world(p.x,p.y,p.d,s.distance));}
+      if(group){const p=group.userData.placement;group.position.fromArray(this.plan.world(p.x,p.y,p.d,s.distance));}
     }
     const gateWaves=new Set();
     for(let wave=Math.max(2,s.wave);race.checkpointDistance(wave)<=s.distance+tunnel.depth;wave++){
       const d=race.checkpointDistance(wave);if(d<s.distance-25)continue;
       gateWaves.add(wave);if(!this.gates.has(wave))this.gates.set(wave,this.makeGate(wave));
       const group=this.gates.get(wave),profile=group.userData.profile;
-      group.position.fromArray(tunnel.world(profile.x,profile.y,d,s.distance));
+      group.position.fromArray(this.plan.world(profile.x,profile.y,d,s.distance));
     }
     for(const [wave,group] of this.gates)if(!gateWaves.has(wave)){this.scene.remove(group);this.gates.delete(wave);}
   }

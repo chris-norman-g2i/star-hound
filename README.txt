@@ -23,8 +23,10 @@ CONTROLS
 WASD / arrows: steer. Space: hold fire. Shift: boost using speed charge.
 Esc: pause/resume, including during a crash. Enter: launch from the hangar.
 M during gameplay: immediately start the next of five gameplay tracks, wrapping back to the first.
-P (temporary debug): cycle all 16 soundtrack entries, restarting each at its authored tempo.
-M does not mute. Options contains Mute All and independent music, effects and voice volume sliders.
+P (when music debug is enabled): cycle all 16 soundtrack entries at their authored tempo.
+M does not mute. Options contains Mute All and independent music and effects volume sliders.
+Voice volume is fixed at zero and its slider is hidden, including when older audio preferences are loaded.
+Channel defaults and adjustability are defined in audio.channels in js/settings.js.
 Options and Developer Settings are separate main-menu entries. Developer Settings require returning to the hangar.
 Click outside any closable dialog to dismiss it; the pause screen requires Resume or Esc.
 The game pauses when hidden or unfocused. Menu buttons retain keyboard navigation.
@@ -54,7 +56,7 @@ they are not collision hazards. Path bends are more dramatic visually and requir
 Background stations, asteroid clusters and satellites are decorative and checked against the curved
 flight corridor, with at least 28 units of clearance beyond both the corridor and the object's bounds.
 A seeded distance plan alternates open space (60% of route distance by default) with circular tunnels,
-fly-through stations and long cruisers. Checkpoint outlines fit the current enclosure or station door. Tunnel walls and offset station doors cause collisions. Stations
+straight and curved fly-through stations, long cruisers, space traffic and movie-trope crossings. Checkpoint outlines fit the current enclosure or station door. Tunnel walls and offset station doors cause collisions. Stations
 have industrial bulkheads and crates; their entry and exit approaches stay clear of random encounters.
 Station openings can reach the edges of the playable track while remaining fully contained. Openings
 start 30% larger, then shrink with continuous difficulty toward the previous dimensions as their minimum.
@@ -90,6 +92,15 @@ motion freezes the respective animation. Pausing freezes elapsed gameplay time a
 Clusters remain alive until their entire bounding sphere is at least 180 units behind the camera's
 view plane. Existing clusters do not expire by age or disappear when their motion crosses a motif
 boundary. Motif lengths, weights and open share are tunable.
+Traffic highways enter diagonally, share the player path for 100–400 units, then diverge offscreen.
+Wheel-free trucks, racers, cars and motorcycles share a direction within each stream. Higher difficulty
+increases the chance of oncoming traffic. Impacts cause vehicles to veer and cost 60% hull; vehicle
+pileups produce damaging wreckage (15% hull). Close passes trigger layered, sometimes repeated horns.
+Movie crossings shuffle glass movers, strawberry carts, swaying laundry and equal-sized box stacks.
+Glass and carts shatter/scatter on contact (10% hull), with placeholder angry chatter from the movers.
+Clothing wraps around the pilot and reduces speed to 45% for 3–5 seconds before blowing away.
+DOME DEPOT and ZERO-G SUPPLY boxes have original store artwork and a narrow avoidance gap.
+Player and traffic exhaust share smooth shaded smoke and luminous plasma; vehicle geometry stays faceted.
 Background stars stay 800–1,600 units ahead of the scene origin, preventing excessive steering parallax.
 Camera-relative speed streaks stay at least 300 units away and travel at one-quarter of flight speed.
 Speed rings appear in offset hexagonal series of 3–7. Their edges never damage the ship. Each successful
@@ -120,7 +131,7 @@ The warning glow fades fully off between pulses: one cycle every five seconds at
 two cycles per second near zero. Hull heals 1% every two damage-free seconds of active play; taking damage
 restarts that interval. Pausing and crash sequences do not advance healing.
 Sector/wave labels, checkpoint text, bottom instructions, track information and weapon text are removed.
-The upper-right music debug remains. Pause uses translucent brushed metal over the frozen flight.
+The upper-right music debug is hidden by default. Pause uses translucent brushed metal over the frozen flight.
 
 CANNON AND FOOD PICKUPS
 Infinite ammunition, four cannon tiers (1/2/4/6 barrels), fire-rate and cooling upgrades through IV.
@@ -150,12 +161,15 @@ Blocked local storage falls back to session checkpoints; malformed saves are ign
 Browser rules for file:// storage may vary.
 
 MUSIC AND EFFECTS
-One catalog in settings.js defines all 16 music entries, their roles, palettes, arrangements and mix profiles.
-The gameplay order is Copper Funk, Iron Drive, Glass Arcade, Neon Pursuit and Afterburner Velvet.
+One catalog in settings.js defines all 15 music entries, their roles, palettes, arrangements and mix profiles.
+The gameplay order is Copper Funk / Afterburner Velvet, Iron Drive, Glass Arcade and Neon Pursuit.
+The opening medley concatenates both original 16-bar scores at 110 BPM without a gap or restart between sections.
+Iron Drive lasts 32 bars (76.8 seconds at 100 BPM). A randomized sine or square lead run enters every two bars,
+mostly ascending with occasional descending runs. Phrase randomness never consumes gameplay randomness.
 Each complete arrangement plays once, independently of waves or motifs, then fades out. A 0.6-second
-silent gap precedes the next arrangement's fade-in. The sequence repeats after the fifth track.
-Every new flight starts with Copper Funk, including Play Now and checkpoint launches.
-Gameplay tempo follows the existing absolute-speed rule, with half the previous rate of tempo growth.
+silent gap precedes the next arrangement's fade-in. The sequence repeats after the fourth track.
+Every new flight starts with the Copper Funk / Afterburner Velvet medley, including Play Now and checkpoint launches.
+Gameplay and previews use each track's authored tempo.
 Invincibility retains gameplay music. Solar Disco, Goodboy Forever, Heavy Orbit and Solar Relay remain
 available in the temporary preview catalog but are absent from automatic gameplay selection.
 The hangar requests imported Title Music immediately on game startup. If the browser blocks autoplay,
@@ -164,13 +178,15 @@ Original Soft Launch remains available in preview. Drifting Home keeps its defea
 Imported Rainbow Victory, Pause Music, Death Music and Wave Victory Fanfare are preview-only.
 Pause and Death Music have identical musical settings; their separate catalog entries retain the source names.
 M immediately selects the next gameplay track, including during invincibility.
-The temporary top-right black/red debug box shows the actual track, BPM, preview mode and locked/muted/paused state.
+When enabled, the top-right debug box shows the actual track, BPM, preview mode and locked/muted/paused state.
 P cycles every catalog entry at authored tempo. A preview persists through sector changes and powerups, then
 clears on a screen/mode change or M. A paused preview auditions music without resuming flight or effects.
 The wave fanfare plays once and reports FINISHED. Crashes always silence music, including previews.
-Set music.debug.enabled=false in settings.js to disable the debug overlay and its preview shortcut.
+Music debugging is disabled by default. Set music.debug.enabled=true in settings.js to restore the overlay and P shortcut.
 MusicDirector owns selection; MusicTransport owns a single scheduler, source cleanup and event rendering.
-Score-format arrangers emit common synthesis events. Imported voices keep their distortion, filter sweeps and
+Score-format arrangers, concatenated score sections and optional lead layers emit common synthesis events.
+Section lengths determine the combined song's duration; layers work through the same scheduler and renderer.
+Imported voices keep their distortion, filter sweeps and
 instrument echoes. No separate imported player or AudioContext is created. SoundEngine owns the shared mix.
 Music and effects have separate ambience returns behind their own volume controls; muting a channel also mutes its tails.
 Enemy explosions use a sharp bass drop and brighter noise; rock explosions use a lower, rougher rumble.
@@ -193,7 +209,10 @@ js/game.js: lifecycle, input and frame coordination.
 js/systems.js: encounter/firing/collision simulation and typed presentation events.
 js/checkpoints.js: persistence, legacy migration and restoration after the crash completes.
 js/scene.js: ship/entity rendering, rainbow material ownership, camera and debris/dog presentation.
-js/effects.js: pooled sprite particles, aligned star streaks and radial/temporal render passes.
+js/effects.js: pooled impact/celebration sprites, aligned star streaks and radial/temporal render passes.
+js/exhaust.js: shared instanced, shaded smoke and luminous plasma for all engines.
+js/motif-systems.js: seeded traffic and trope actors, swept collisions, deflection, debris and reactions.
+js/motif-view.js: batched poly vehicles, authored props, store textures and wrapping garments.
 js/route.js: seeded distance plan, shared motif dimensions/collision surfaces, ring placement and pass detection.
 js/environment.js: bounded motif geometry, decorative scenery, rings and checkpoint gates.
 js/music.js: resource-free track selection and unified scheduled music rendering.
@@ -204,7 +223,8 @@ js/controls.js: main-menu developer overrides, seed, Play Now and complete setti
 js/hangar.js: original aligned title animation. js/three-loader.js: registers the pinned CDN engine.
 
 DEVELOPER SETTINGS
-Available only in the main menu, with no tuning keyboard shortcuts. Apply saves every numeric field
+The Developer Settings menu button is hidden by default; set ui.developerSettings.visible=true in js/settings.js
+to restore it. There are no tuning keyboard shortcuts. Apply saves every numeric field
 and the selected seed under starhound.developer-settings.v1 in local storage. Applied settings take
 priority over checkpoint rules, including after reload or a crash; checkpoints retain run progress.
 Apply does not launch or restart a wave. Play Now saves the form and immediately launches a fresh
@@ -233,3 +253,12 @@ Three.js r160 classic CDN: https://cdn.jsdelivr.net/npm/three@0.160.0/build/thre
 Lilita One is bundled locally; its SIL Open Font License is in assets/fonts/OFL-LilitaOne.txt.
 The original hangar assets and 16 prerecorded character voices remain under assets/.
 Voice provenance, generation details and license notes are beside the audio clips.
+
+Motif verification
+Run node tests/motifs.cjs for deterministic route/settings, migration/export, collision, damage,
+clothing, checkpoint and long-running pool checks. Run node tests/motifs-browser.cjs for real WebGL
+geometry, both traffic directions, all trope reactions, logo textures, exhaust, pause and live gameplay.
+The browser checks use Playwright and Chrome; PLAYWRIGHT_PATH, CHROME_PATH and THREE_PATH can override
+the local runtime locations. Screenshots are written to output/qa/motifs/.
+Store logo source artwork lives in assets/motifs/. After editing it, run node
+tools/build-motif-textures.cjs to refresh the embedded images used by WebGL on file:// and HTTP.

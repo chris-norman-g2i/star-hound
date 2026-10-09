@@ -5,12 +5,24 @@ hangar painting as the visual reference. No image-generation CLI was used.
 The original painting is preserved in hangar-reference.png.
 
 Runtime assets
-- hangar-clean-v1.png: static 1672 x 941 background.
+- hangar-clean-v2.png: static menu-free background, displayed in the original
+  1672 x 941 layout. Its native size is 1671 x 941; the full-image layout scales
+  it to the authored dimensions so existing animation anchors remain aligned.
+- hangar-clean-v1.png: earlier background with painted menu panels, retained
+  as a source reference and no longer used by the title screen.
 - scarf-wind-v2.png: transparent eight-frame atlas, four columns and two rows.
 - tail-wind-v2.png: transparent eight-frame atlas, four columns and two rows.
 Earlier v1 atlases are retained as intermediate references.
 
 Prompt set / edit briefs
+
+Menu removal (v2):
+Created with the built-in image-generation tool. The exact prompt is saved in
+hangar-clean-v2-prompt.txt. Remove all four lower-left painted menu panels,
+their text, stars, outlines, glow and circuit lines. Reconstruct the hangar
+scenery and reflective floor. Preserve the logo, husky, ship, composition and
+lighting; retain the scarf/tail-free base for the registered animation layers.
+All title buttons are interactive HTML overlays.
 
 Clean background:
 Remove the entire orange scarf, including its neck band and flowing end, and

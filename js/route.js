@@ -1,6 +1,14 @@
 (function(namespace){
 'use strict';
-const {route,speedRings,math,flight,hull,propulsion,tuning,race}=namespace.settings;
+const {route,speedRings,math,flight,hull,propulsion,tuning,race,tunnel,traffic,tropes}=namespace.settings;
+
+const LENGTH_RULES={
+  fixed:(plan,spec)=>route[spec.length],
+  traffic:plan=>traffic.approachDistance*2+plan.trafficOverlap(),
+  tropes:plan=>tropes.length(plan.end),
+};
+const SEGMENT_BUILDERS={station:(plan,segment)=>plan.stationSegment(segment),
+  traffic:(plan,segment)=>plan.trafficSegment(segment),tropes:(plan,segment)=>plan.tropeSegment(segment)};
 
 /** One distance plan owns motif boundaries, collision surfaces and ring placement.
  * Its hash sampling never consumes the encounter or pickup random stream.
@@ -8,34 +16,50 @@ const {route,speedRings,math,flight,hull,propulsion,tuning,race}=namespace.setti
 class RoutePlan {
   constructor(seed=tuning.seed){this.reset(seed);}
   reset(seed=this.seed){
-    this.seed=seed;this.segments=[];this.end=0;this.cycle=0;
+    this.seed=seed;this.worldOrigin=null;this.segments=[];this.end=0;this.cycle=0;
     this.rings=new Map();this.chain=0;this.chainSeries=null;this.contactId=null;
   }
   use(seed){if(seed!==this.seed)this.reset(seed);}
   sample(index,salt){return route.sample(this.seed,index,salt);}
   extend(distance){
-    const choices=[['tunnel',route.tunnelWeight,route.tunnelLength],['station',route.stationWeight,route.stationLength],['cruiser',route.cruiserWeight,route.cruiserLength]];
+    const choices=Object.entries(route.motifs).filter(([,spec])=>spec.enabled!==false).map(([kind,spec])=>[kind,route[spec.weight],spec]);
     const total=choices.reduce((sum,choice)=>sum+choice[1],0);
     while(this.end<=distance){
       let roll=this.sample(this.cycle,'motif')*total;
       const chosen=choices.find(choice=>{roll-=choice[1];return roll<0;})||choices[0];
-      const [kind,,length]=chosen,openLength=length*route.openShare/(1-route.openShare);
+      const [kind,,spec]=chosen;
+      const length=LENGTH_RULES[spec.lengthRule||'fixed'](this,spec);
+      const openLength=length*route.openShare/(1-route.openShare);
       this.segments.push({id:`${this.cycle}:open`,kind:'open',start:this.end,end:this.end+openLength});
-      const segment={id:`${this.cycle}:${kind}`,index:this.cycle,kind,start:this.end+openLength,end:this.end+openLength+length,
+      const segment={id:`${this.cycle}:${kind}`,index:this.cycle,kind,family:spec.family,path:spec.path||'curved',tiles:!!spec.tiles,interactive:!!spec.interactive,start:this.end+openLength,end:this.end+openLength+length,
         side:route.cruiser.sides[Math.floor(this.sample(this.cycle,'side')*route.cruiser.sides.length)]};
-      if(kind==='station'){
-        const c=route.station;
-        segment.portals=this.stationPortals(segment);
-        segment.obstacles=[];
-        for(let d=segment.start+c.obstacleStart;d<segment.end-c.runwayDistance;d+=c.obstacleSpacing){
-          if(segment.portals.some(portal=>Math.abs(portal.d-d)<c.runwayDistance))continue;
-          const index=segment.obstacles.length;
-          segment.obstacles.push({id:`${segment.id}:bulkhead:${index}`,d,
-            x:(index%2?1:-1)*c.obstacleOffsetX,y:(this.sample(this.cycle,`bulkhead:${index}`)*2-1)*c.obstacleOffsetY,
-            rx:c.obstacleHalfWidth,ry:c.obstacleHalfHeight,rz:c.obstacleDepth});
-        }
-      }
+      SEGMENT_BUILDERS[spec.family]?.(this,segment);
       this.segments.push(segment);this.end=segment.end;this.cycle++;
+    }
+  }
+  trafficOverlap(){return math.mix(traffic.overlapDistance.min,traffic.overlapDistance.max,this.sample(this.cycle,'traffic-overlap'));}
+  trafficSegment(segment){
+    segment.mergeStart=segment.start+traffic.approachDistance;segment.mergeEnd=segment.mergeStart+this.trafficOverlap();
+    segment.direction=this.sample(segment.index,'traffic-direction')<traffic.oncomingChance(segment.start)?-1:1;
+    segment.sideSign=this.sample(segment.index,'traffic-side')<.5?-1:1;
+  }
+  tropeSegment(segment){
+    const order=[...tropes.kinds].sort((a,b)=>this.sample(segment.index,`trope-order:${a}`)-this.sample(segment.index,`trope-order:${b}`));
+    const spacing=(segment.end-segment.start-tropes.padding*2)/order.length;
+    segment.stages=order.map((kind,index)=>({id:`${segment.id}:stage:${index}`,kind,d:segment.start+tropes.padding+index*spacing,
+      phase:this.sample(segment.index,`trope-phase:${index}`)*math.tau,
+      gap:Math.floor(this.sample(segment.index,`box-gap:${index}`)*(tropes.boxes.columns-2))+1}));
+  }
+  stationSegment(segment){
+    const c=route.station;
+    segment.portals=this.stationPortals(segment);
+    segment.obstacles=[];
+    for(let d=segment.start+c.obstacleStart;d<segment.end-c.runwayDistance;d+=c.obstacleSpacing){
+      if(segment.portals.some(portal=>Math.abs(portal.d-d)<c.runwayDistance))continue;
+      const index=segment.obstacles.length;
+      segment.obstacles.push({id:`${segment.id}:bulkhead:${index}`,d,
+        x:(index%2?1:-1)*c.obstacleOffsetX,y:(this.sample(this.cycle,`bulkhead:${index}`)*2-1)*c.obstacleOffsetY,
+        rx:c.obstacleHalfWidth,ry:c.obstacleHalfHeight,rz:c.obstacleDepth});
     }
   }
   stationPortals(segment){
@@ -79,25 +103,40 @@ class RoutePlan {
     return result;
   }
   at(distance){return this.between(distance,distance).find(s=>s.start<=distance&&s.end>distance)||this.segments.at(-1);}
+  center(distance){
+    if(distance<0)return tunnel.center(distance);
+    const segment=this.at(distance);
+    if(segment.path!=='straight')return tunnel.center(distance);
+    const first=tunnel.center(segment.start),last=tunnel.center(segment.end);
+    const t=(distance-segment.start)/(segment.end-segment.start);
+    return {x:math.mix(first.x,last.x,t),y:math.mix(first.y,last.y,t)};
+  }
+  world(x,y,d,origin){
+    const point=this.center(d);
+    if(this.worldOrigin!==origin){this.worldOrigin=origin;this.worldBase=this.center(origin);}
+    return [x+point.x-this.worldBase.x,y+point.y-this.worldBase.y,origin-d];
+  }
+  absolute(x,y,d){const center=this.center(d);return {x:x+center.x,y:y+center.y,d};}
   gateProfile(distance){
     const segment=this.at(distance),inset=route.gates.wallInset;
-    if(segment.kind==='tunnel')return {shape:'ellipse',x:0,y:0,rx:route.tunnel.radius-inset,ry:route.tunnel.radius-inset};
+    if(segment.family==='tunnel')return {shape:'ellipse',x:0,y:0,rx:route.tunnel.radius-inset,ry:route.tunnel.radius-inset};
     // Include both adjacent segments so a checkpoint coincident with a station exit fits its door.
     for(const station of this.between(distance-route.gates.portalRange,distance+route.gates.portalRange)){
       const portal=station.portals?.find(p=>Math.abs(p.d-distance)<=route.gates.portalRange);
       if(portal)return {shape:'rectangle',x:portal.x,y:portal.y,rx:portal.rx-inset,ry:portal.ry-inset};
     }
-    if(segment.kind==='station')return {shape:'ellipse',x:0,y:0,rx:route.station.halfWidth-inset,ry:route.station.halfHeight-inset};
+    if(segment.family==='station')return {shape:'ellipse',x:0,y:0,rx:route.station.halfWidth-inset,ry:route.station.halfHeight-inset};
     return {shape:'circle',x:0,y:0};
   }
   allowsEncounter(e){
     const segment=this.at(e.d);
-    if(segment.kind==='station'){
+    if(segment.interactive)return false;
+    if(segment.family==='station'){
       if(segment.portals.some(p=>Math.abs(e.d-p.d)<route.station.runwayDistance))return false;
       if(e.type==='barrier')return false;
       e.theme='station';
     }
-    if(segment.kind==='tunnel'&&e.type!=='barrier'&&Math.hypot(e.x,e.y)+Math.max(e.rx,e.ry)>route.tunnel.radius)return false;
+    if(segment.family==='tunnel'&&e.type!=='barrier'&&Math.hypot(e.x,e.y)+Math.max(e.rx,e.ry)>route.tunnel.radius)return false;
     return true;
   }
   visibleRings(first,last){
@@ -113,7 +152,8 @@ class RoutePlan {
         x=math.clamp(x+(this.sample(series,`ring-x:${index}`)*2-1)*c.steerStepX,-c.offsetX,c.offsetX);
         y=math.clamp(y+(this.sample(series,`ring-y:${index}`)*2-1)*c.steerStepY,-c.offsetY,c.offsetY);
         const segment=this.at(d);
-        if(segment.kind==='station'&&segment.portals.some(p=>Math.abs(d-p.d)<route.station.runwayDistance))blocked=true;
+        if(segment.interactive)blocked=true;
+        if(segment.family==='station'&&segment.portals.some(p=>Math.abs(d-p.d)<route.station.runwayDistance))blocked=true;
         const id=`${series}:${index}`;
         candidates.push({id,series,index,d,x,y,result:'ready'});
       }
@@ -140,13 +180,13 @@ class RoutePlan {
   contact(s){
     const p=s.player,c=route.station;
     const active=this.at(s.distance);
-    if(active.kind==='tunnel'){
+    if(active.family==='tunnel'){
       const radius=Math.hypot(p.x,p.y),limit=route.tunnel.radius-flight.shipRadius;
       if(radius>=limit-route.contactMargin)return {id:`${active.id}:wall`,kind:'wall',penetrating:radius>=limit,
         resolve:()=>{const factor=(limit-route.contactEpsilon)/radius;p.x*=factor;p.y*=factor;p.vx=0;p.vy=0;}};
     }
     for(const segment of this.between(s.previousDistance-c.portalDepth,s.distance+c.portalDepth+route.contactMargin)){
-      if(segment.kind!=='station')continue;
+      if(segment.family!=='station')continue;
       for(const portal of segment.portals){
         const front=portal.d-c.portalDepth;
         if(s.previousDistance>portal.d+c.portalDepth||s.distance<front-route.contactMargin)continue;

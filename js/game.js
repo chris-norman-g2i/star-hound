@@ -1,7 +1,7 @@
 (function(namespace){
 'use strict';
 const THREE=namespace.THREE;
-const {race,math,gfx,ui,tuning}=namespace.settings;
+const {race,math,gfx,ui,audio,tuning}=namespace.settings;
 const {SoundEngine,FlightScene,FlightSystems,FlightInterface,WaveCheckpoints,FlightControls,RoutePlan}=namespace;
 let initialized=false;
 function init(){
@@ -55,14 +55,15 @@ function init(){
   });
   const requestNew=()=>{if(checkpoints.current)view.confirmNew(checkpoints);else start();};
   view.nodes.launch.addEventListener('click',requestNew);view.nodes.restart.addEventListener('click',requestNew);
-  view.nodes['checkpoint-resume'].addEventListener('click',continueCheckpoint);
+  // view.nodes['checkpoint-resume'].addEventListener('click',continueCheckpoint);
   view.nodes['confirm-new'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();start();});
   view.nodes['resume-checkpoint-dialog'].addEventListener('click',()=>{view.nodes['new-run-dialog'].close();continueCheckpoint();});
   view.nodes.resume.addEventListener('click',pause);
   for(const id of ['home','results-home'])view.nodes[id].addEventListener('click',home);
-  for(const channel of ['music','effects','voice']){
+  for(const [channel,config] of Object.entries(audio.channels)){
     const input=document.getElementById(channel+'-volume');input.value=sound.volumes[channel];
-    input.addEventListener('input',()=>{sound.setVolume(channel,Number(input.value));view.audio(sound);});
+    input.closest('label').classList.toggle('hidden',!config.adjustable);
+    if(config.adjustable)input.addEventListener('input',()=>{sound.setVolume(channel,Number(input.value));view.audio(sound);});
   }
   view.audio(sound);
   view.nodes['audio-button'].addEventListener('click',toggleAudio);view.nodes['pause-button'].addEventListener('click',pause);
